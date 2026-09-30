@@ -32,8 +32,15 @@ class ProviderConfig {
   final Duration timeout;
   final List<String> modelIds;
 
-  bool get isLocal =>
-      baseUrl.contains('localhost') || baseUrl.contains('127.0.0.1');
+  /// Servidor local (ollama, lmstudio, testes de integração com loopback real):
+  /// não exige API key. Detecta pelo host do URI, não por substring solta.
+  bool get isLocal {
+    final host = Uri.tryParse(baseUrl)?.host.toLowerCase() ?? '';
+    return host == 'localhost' ||
+        host == '127.0.0.1' ||
+        host == '::1' ||
+        host == '0.0.0.0';
+  }
 }
 
 class OpenAiCompatibleProvider implements LlmProvider {
