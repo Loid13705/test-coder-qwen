@@ -322,9 +322,11 @@ class ChatRepository {
         .toList();
     return Page(
       items: items,
-      hasMore: hasMore,
-      nextCursor: items.isNotEmpty ? items.first.id : null,
-      prevCursor: items.isNotEmpty ? items.last.id : null,
+      // Sem `beforeId` não existe página mais nova; o cursor de "mais antigo"
+      // é o id do item mais antigo da página (items.first em ordem
+      // cronológica), que casa com o filtro `id < beforeId` acima.
+      nextCursor: beforeId == null ? null : items.first.id,
+      prevCursor: items.isNotEmpty ? items.first.id : null,
       pageSize: size,
       totalEstimate: _toInt(db.query(
           "SELECT COUNT(*) AS c FROM messages WHERE conversation_id=?",

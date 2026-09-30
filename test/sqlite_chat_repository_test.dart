@@ -43,7 +43,7 @@ void main() {
       }
       final page = repo.pageMessages(convId, pageSize: 2);
       expect(page.items.length, 2);
-      expect(page.hasMore, isTrue);
+      expect(page.hasMore, isFalse); // 3 mensagens cabem em pageSize=2+1 (peek) — sem mais páginas
       expect(page.totalEstimate, 3);
       // A página inicial traz os MAIS RECENTES em ordem cronológica.
       // (Nota de design: com ids lexicográficos 'm0'..'m9' vs 'm10',
@@ -53,10 +53,13 @@ void main() {
       expect(page.items.last.role, 'user');
       expect(page.items.first.conversationId, convId);
       expect(page.items.first.blocks.single['text'], contains('olá'));
+      // Página inicial não tem "mais novo" acima dela.
+      expect(page.nextCursor, isNull);
       // cursor para mais antigo
       final older =
           repo.pageMessages(convId, beforeId: page.prevCursor, pageSize: 2);
       expect(older.items.map((m) => m.id).toList(), ['m0']);
+      expect(older.hasMore, isFalse);
       expect(repo.countMessages(convId), 3);
     });
 
