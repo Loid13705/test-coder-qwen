@@ -38,12 +38,10 @@ class AnthropicProvider implements LlmProvider {
       .where((m) => config.modelIds.isEmpty || config.modelIds.contains(m.id))
       .toList();
 
+  // HttpClient não expõe encoding cru; o corpo é lido como
+  // Stream<List<int>> (bytes) e decodado por utf8ChunksIncremental.
   HttpClient get _http =>
-      _client ??= HttpClient()
-        ..connectionTimeout = const Duration(seconds: 15)
-        // bytes crus: SSE UTF-8 é decodado por utf8ChunksIncremental
-        // (latin-1 default do HttpClient corromperia multi-byte).
-        ..encoding = null;
+      _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 15);
 
   Map<String, String> get _headers => {
         'content-type': 'application/json',

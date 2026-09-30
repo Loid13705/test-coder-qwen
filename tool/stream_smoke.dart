@@ -43,7 +43,7 @@ Future<void> _serveSse(HttpServer server) async {
     final parsed = jsonDecode(body) as Map<String, Object?>;
     final isToolReq = parsed.containsKey('tools');
     stdout.writeln('[server] chat request, tools=$isToolReq');
-    req.response.headers.set('content-type', 'text/event-stream');
+    req.response.headers.set('content-type', 'text/event-stream; charset=utf-8');
     final out = req.response;
     void sse(Map<String, Object?> c) => out.write('data: ${jsonEncode(c)}\n\n');
     if (isToolReq) {
@@ -63,7 +63,7 @@ Future<void> _serveSse(HttpServer server) async {
           }
         ]
       });
-      await Future.delayed(const Duration(milliseconds: 5));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
       sse({
         'choices': [
           {
@@ -96,11 +96,11 @@ Future<void> _serveSse(HttpServer server) async {
       });
       sse({
         'choices': [
-          {'delta': {}, 'finish_reason': 'tool_calls'}
+          <String, Object?>{'delta': <String, Object?>{}, 'finish_reason': 'tool_calls'}
         ]
       });
       sse({
-        'usage': {'prompt_tokens': 11, 'completion_tokens': 7},
+        'usage': <String, int>{'prompt_tokens': 11, 'completion_tokens': 7},
         'choices': []
       });
       out.write('data: [DONE]\n\n');
@@ -116,15 +116,15 @@ Future<void> _serveSse(HttpServer server) async {
           ]
         });
         await out.flush();
-        await Future.delayed(const Duration(milliseconds: 30));
+        await Future<void>.delayed(const Duration(milliseconds: 30));
       }
       sse({
         'choices': [
-          {'delta': {}, 'finish_reason': 'stop'}
+          <String, Object?>{'delta': <String, Object?>{}, 'finish_reason': 'stop'}
         ]
       });
       sse({
-        'usage': {'prompt_tokens': 5, 'completion_tokens': 9},
+        'usage': <String, int>{'prompt_tokens': 5, 'completion_tokens': 9},
         'choices': []
       });
       out.write('data: [DONE]\n\n');
@@ -149,7 +149,7 @@ class _SlowCancelServer {
 
   Future<void> _run() async {
     await for (final req in _server) {
-      req.response.headers.set('content-type', 'text/event-stream');
+      req.response.headers.set('content-type', 'text/event-stream; charset=utf-8');
       for (var i = 0; i < 200; i++) {
         try {
           req.response.write(
@@ -159,7 +159,7 @@ class _SlowCancelServer {
           clientClosedEarly = true;
           break;
         }
-        await Future.delayed(const Duration(milliseconds: 20));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
       }
       stdout.writeln('[slow-server] client closed early: $clientClosedEarly');
       try {
@@ -201,10 +201,9 @@ Future<void> main() async {
             toolSchemas: const [])
         .first;
   } catch (_) {}
-  check(
-      firstErr is ErrorChunk &&
-          (firstErr as ErrorChunk).failure.code == VtErrorCode.apiKeyMissing,
-      'streamChat sem key -> ErrorChunk(api_key_missing)');
+  final errOk = firstErr is ErrorChunk &&
+      (firstErr as ErrorChunk?)?.failure.code == VtErrorCode.apiKeyMissing;
+  check(errOk, 'streamChat sem key -> ErrorChunk(api_key_missing)');
 
   final offline = OpenAiCompatibleProvider(const ProviderConfig(
       id: 'ollama',
@@ -237,8 +236,8 @@ Future<void> main() async {
   }
   check(deltas.join() == 'Olá! Sou o stream real.',
       'streaming SSE deltas montam texto real do servidor');
-  check(last is DoneChunk && (last as DoneChunk).finishReason == 'stop',
-      'DoneChunk(stop) real');
+  final doneOk = last is DoneChunk && (last as DoneChunk?)?.finishReason == 'stop';
+  check(doneOk, 'DoneChunk(stop) real');
 
   // tool calls acumulados entre chunks parciais
   final tcs = <ToolCallStartChunk>[];
