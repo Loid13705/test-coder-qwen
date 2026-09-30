@@ -13,6 +13,37 @@ import '../../domain/errors/redaction.dart';
 import '../../domain/errors/vt_failure.dart';
 import 'provider_contract.dart';
 
+/// Override explícito de capacidades vindo de Settings → Models
+/// ("capability override" da spec). Campos `null` = sem override (usa o
+/// catálogo); `false` também é um override válido (desabilitar capacidade).
+class CapabilityOverride {
+  const CapabilityOverride({
+    this.tools,
+    this.vision,
+    this.streaming,
+    this.jsonMode,
+    this.contextWindow,
+  });
+
+  final bool? tools;
+  final bool? vision;
+  final bool? streaming;
+  final bool? jsonMode;
+  final int? contextWindow;
+
+  ModelCapabilities apply(ModelCapabilities base) => ModelCapabilities(
+        tools: tools ?? base.tools,
+        vision: vision ?? base.vision,
+        streaming: streaming ?? base.streaming,
+        jsonMode: jsonMode ?? base.jsonMode,
+        longContext: contextWindow != null && contextWindow! >= 100000
+            ? true
+            : base.longContext,
+        fast: base.fast,
+        cheap: base.cheap,
+      );
+}
+
 class ProviderConfig {
   const ProviderConfig({
     required this.id,
@@ -22,6 +53,7 @@ class ProviderConfig {
     this.headers = const {},
     this.timeout = const Duration(seconds: 60),
     this.modelIds = const [],
+    this.capabilityOverrides = const {},
   });
 
   final String id;
@@ -31,6 +63,11 @@ class ProviderConfig {
   final Map<String, String> headers;
   final Duration timeout;
   final List<String> modelIds;
+
+  /// Overrides por modelo (ex.: confirmar via teste real que um modelo local
+  /// suporta tools). Sem override, capacidades desconhecidas NUNCA são
+  /// presumidas.
+  final Map<String, CapabilityOverride> capabilityOverrides;
 
   /// Servidor local (ollama, lmstudio, testes de integração com loopback real):
   /// não exige API key. Detecta pelo host do URI, não por substring solta.
@@ -61,7 +98,65 @@ class OpenAiCompatibleProvider implements LlmProvider {
   List<ModelInfo> get models => kKnownModels
       .where((m) => m.providerId == config.id)
       .where((m) => config.modelIds.isEmpty || config.modelIds.contains(m.id))
+      .map(_applyOverride)
       .toList();
+
+  /// Aplica capability override do usuário (Settings → Models) a um ModelInfo.
+  ModelInfo _applyOverride(ModelInfo m) {
+    final ov = config.capabilityOverrides[m.id];
+    if (ov == null) return m;
+    return ModelInfo(
+      id: m.id,
+      providerId: m.providerId,
+      displayName: m.displayName,
+      contextWindow: ov.contextWindow ?? m.contextWindow,
+      capabilities: ov.apply(m.capabilities),
+      pricing: m.pricing,
+      source: m.source,
+      enabled: true, // override explícito conta como confirmação do usuário
+    );
+  }
+
+  /// Resolução REAL de capacidades para o modelo pedido:
+  /// 1. catálogo conhecido por (providerId, modelId) + overrides;
+  /// 2. ids locais derivados de catálogo (ex.: `llama3.1:8b-instruct-q5`);
+  /// 3. modelo declarado em `modelIds` mas sem metadata → capacidades
+  ///    conservadoras (streaming apenas), NUNCA presume tools/vision;
+  /// 4. completamente desconhecido → null (o chamador decide; tools são
+  ///    bloqueadas por padrão seguro).
+  ModelInfo? _resolveModel(String modelId) {
+    final direct = kKnownModels
+        .where((m) => m.providerId == id && m.id == modelId)
+        .firstOrNull;
+    if (direct != null) return _applyOverride(direct);
+    final base = kKnownModels
+        .where((m) =>
+            m.providerId == id &&
+            m.source == ModelSource.local &&
+            modelId.startsWith('${m.id}-'))
+        .firstOrNull;
+    if (base != null) {
+      return ModelInfo(
+        id: modelId,
+        providerId: id,
+        displayName: modelId,
+        contextWindow: base.contextWindow,
+        capabilities: const ModelCapabilities(streaming: true),
+        source: ModelSource.local,
+      );
+    }
+    if (config.modelIds.contains(modelId)) {
+      return ModelInfo(
+        id: modelId,
+        providerId: id,
+        displayName: modelId,
+        contextWindow: 4096,
+        capabilities: const ModelCapabilities(streaming: true),
+        source: config.isLocal ? ModelSource.local : ModelSource.remote,
+      );
+    }
+    return null;
+  }
 
   HttpClient get _http {
     return _client ??= HttpClient()
@@ -294,6 +389,22 @@ class OpenAiCompatibleProvider implements LlmProvider {
 
   /// Executa a requisição SSE real e emite chunks via [emit]. Lança [VtFailure]
   /// tipada para erros (nunca fabrica conteúdo).
+  /// Normaliza o nome de tool vindo do provedor para um id estável do registry.
+  /// Provedores OpenAI-compatíveis não aceitam `.` em nomes de função, então
+  /// modelos locais/remotos frequentemente devolvem `fs_read_text` quando a
+  /// schema foi enviada como `fs.read_text`. Match exato tem prioridade;
+  /// fallback por underscore só vale contra os nomes REALMENTE enviados no
+  /// request — nunca inventa ids.
+  String _normalizeToolId(String rawName, Set<String> sentNames) {
+    if (sentNames.contains(rawName)) return rawName;
+    final underscored = rawName.replaceAll('_', '.');
+    if (sentNames.contains(underscored)) return underscored;
+    for (final n in sentNames) {
+      if (n.replaceAll('.', '_') == rawName) return n;
+    }
+    return rawName;
+  }
+
   Future<void> _pump(
     String modelId,
     List<ChatRequestMessage> messages,
@@ -302,12 +413,14 @@ class OpenAiCompatibleProvider implements LlmProvider {
     void Function(StreamChunk) emit,
     void Function(HttpClientResponse) onResponse,
   ) async {
+    final sentToolNames = {
+      for (final t in toolSchemas)
+        if (t['name'] is String) t['name'] as String,
+    };
     final pre = _preflight();
     if (pre != null) throw pre;
-    final model = kKnownModels
-        .where((m) => m.id == modelId && m.providerId == id)
-        .firstOrNull;
-    if (toolSchemas.isNotEmpty && model != null && !model.capabilities.tools) {
+    final model = _resolveModel(modelId);
+    if (toolSchemas.isNotEmpty && (model == null || !model.capabilities.tools)) {
       throw VtFailure.modelDoesNotSupportTools(modelId);
     }
     final supportsStreaming = model?.capabilities.streaming ?? true;
@@ -421,7 +534,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
               emit(ToolCallStartChunk(
                   callId:
                       acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
-                  toolId: acc.name,
+                  toolId: _normalizeToolId(acc.name, sentToolNames),
                   argsJson: acc.args));
             }
           }
@@ -434,7 +547,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
         if (acc.name.isNotEmpty) {
           emit(ToolCallStartChunk(
               callId: acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
-              toolId: acc.name,
+              toolId: _normalizeToolId(acc.name, sentToolNames),
               argsJson: acc.args));
         }
       }

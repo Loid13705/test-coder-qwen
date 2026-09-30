@@ -28,6 +28,8 @@ Future<({HttpServer server, List<String> requests})> _startServer(
     } catch (_) {
       // cliente desconectou (cancelamento) — ignora
     }
+  }, onError: (Object _) {
+    // requisição abortada pelo cliente durante leitura — real em stop()
   });
   return (server: server, requests: requests);
 }
@@ -76,7 +78,7 @@ void main() {
       await p.dispose();
     });
 
-    test('sem API key em provider remoto -> api_key_missing', () async {
+    test('sem API key em provider remoto -> unconfigured', () async {
       final p = OpenAiCompatibleProvider(ProviderConfig(
         id: 'openai',
         displayName: 'OpenAI',
@@ -104,10 +106,8 @@ void main() {
   });
 
   group('streamChat contra servidor SSE real', () {
-    late HttpServer server;
-    late List<String> requests;
+    late ({HttpServer server, List<String> requests}) s;
     late OpenAiCompatibleProvider provider;
-    late Future<void> Function(HttpRequest req) handler;
 
     Future<void> respondStop(HttpRequest req) async {
       req.response.headers.contentType =
@@ -127,62 +127,26 @@ void main() {
       await req.response.close();
     }
 
-    Future<void> dispatch(HttpRequest req) => handler(req);
-
-    Future<void> restart(Future<void> Function(HttpRequest) h) async {
-      await server.close(force: true);
-      handler = h;
-      final s2 = await _startServer(dispatch);
-      server = s2.server;
-      requests = s2.requests;
+    /// Sobe um servidor novo por handler — sem estado compartilhado entre
+    /// testes, determinístico.
+    Future<void> start(Future<void> Function(HttpRequest) h) async {
+      s = await _startServer(h);
       provider = OpenAiCompatibleProvider(ProviderConfig(
         id: 'custom',
         displayName: 'Test Local',
-        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        baseUrl: 'http://127.0.0.1:${s.server.port}/v1',
         apiKey: 'sk-local-test',
-        modelIds: ['gpt-4o-mini'],
+        modelIds: const ['gpt-4o-mini'],
       ));
     }
 
-    setUp(() async {
-      handler = respondStop;
-      final s = await _startServer(dispatch);
-        req.response.headers.contentType =
-            ContentType('text', 'event-stream', charset: 'utf-8');
-        req.response.write(_sse([
-          _chunkDelta('Olá'),
-          _chunkDelta(' mundo'),
-          {
-            'choices': [
-              {
-                'delta': {},
-                'finish_reason': 'stop',
-              }
-            ]
-          },
-        ]));
-        await req.response.close();
-      });
-      server = s.server;
-      requests = s.requests;
-      baseUrl = 'http://127.0.0.1:${server.port}/v1';
-      // ignore: unused_local_variable
-
-      provider = OpenAiCompatibleProvider(ProviderConfig(
-        id: 'custom',
-        displayName: 'Test Local',
-        baseUrl: baseUrl,
-        apiKey: 'sk-local-test',
-        modelIds: ['gpt-4o-mini'],
-      ));
-    });
-
     tearDown(() async {
       await provider.dispose();
-      await server.close(force: true);
+      await s.server.close(force: true);
     });
 
     test('recebe deltas reais na ordem e DoneChunk(stop)', () async {
+      await start(respondStop);
       final chunks = await provider
           .streamChat(
             modelId: 'gpt-4o-mini',
@@ -198,14 +162,14 @@ void main() {
       expect(chunks.last, isA<DoneChunk>());
       expect((chunks.last as DoneChunk).finishReason, 'stop');
       // O request real levado ao servidor contém o corpo correto:
-      expect(requests.single, contains('"model":"gpt-4o-mini"'));
-      expect(requests.single, contains('"max_tokens":64'));
-      expect(requests.single, contains('"stream":true'));
+      expect(s.requests.single, contains('"model":"gpt-4o-mini"'));
+      expect(s.requests.single, contains('"max_tokens":64'));
+      expect(s.requests.single, contains('"stream":true'));
     });
 
-    test('tool_calls fragmentados são acumulados em ToolCallStartChunk',
+    test('tool_calls fragmentados são acumulados e normalizados p/ toolId',
         () async {
-      await _restart((req) async {
+      await start((req) async {
         req.response.headers.contentType =
             ContentType('text', 'event-stream', charset: 'utf-8');
         req.response.write(_sse([
@@ -217,7 +181,11 @@ void main() {
                     {
                       'index': 0,
                       'id': 'call_abc',
-                      'function': {'name': 'fs.read_', 'arguments': '{"pa'}
+                      // provedores locais frequentemente devolvem o nome
+                      // com underscores (não aceitam '.' em function names):
+                      'function': {
+                        'name': 'fs_read_text', 'arguments': '{"pa'
+                      }
                     }
                   ]
                 },
@@ -232,7 +200,7 @@ void main() {
                   'tool_calls': [
                     {
                       'index': 0,
-                      'function': {'name': 'text', 'arguments': 'th":"x"}'}
+                      'function': {'arguments': 'th":"x"}'}
                     }
                   ]
                 },
@@ -262,14 +230,13 @@ void main() {
       expect(chunks.last, isA<DoneChunk>());
     });
 
-    test('HTTP 401 -> ErrorChunk api_key_missing com body redigido',
-        () async {
-      await _restart((req) async {
+    test('HTTP 401 -> ErrorChunk api_key_missing com body redigido', () async {
+      await start((req) async {
         req.response.statusCode = 401;
-        req.response.write('{"error":{"message":"bad key sk-shouldberedacted0987654321abcdef"}}');
+        req.response.write(
+            '{"error":{"message":"bad key sk-shouldberedacted0987654321abcdef"}}');
         await req.response.close();
       });
-      server = s2.server;
       final chunks = await provider
           .streamChat(
             modelId: 'gpt-4o-mini',
@@ -283,11 +250,12 @@ void main() {
       final err = chunks.single as ErrorChunk;
       expect(err.failure.code, VtErrorCode.apiKeyMissing);
       expect(err.failure.message, contains('[REDACTED'));
-      expect(err.failure.message, isNot(contains('sk-shouldberedacted0987654321abcdef')));
+      expect(err.failure.message,
+          isNot(contains('sk-shouldberedacted0987654321abcdef')));
     });
 
     test('HTTP 429 -> rate_limited', () async {
-      await _restart((req) async {
+      await start((req) async {
         req.response.statusCode = 429;
         req.response.write('{"error":"slow down"}');
         await req.response.close();
@@ -302,12 +270,50 @@ void main() {
             toolSchemas: const [],
           )
           .toList();
-      expect((chunks.single as ErrorChunk).failure.code, VtErrorCode.rateLimited);
+      expect(
+          (chunks.single as ErrorChunk).failure.code, VtErrorCode.rateLimited);
+    });
+
+    test('usage chunk real é propagado', () async {
+      await start((req) async {
+        req.response.headers.contentType =
+            ContentType('text', 'event-stream', charset: 'utf-8');
+        req.response.write(_sse([
+          _chunkDelta('ok'),
+          {
+            'usage': {'prompt_tokens': 11, 'completion_tokens': 7},
+            'choices': <Object?>[],
+          },
+          {
+            'choices': [
+              {
+                'delta': <String, Object?>{},
+                'finish_reason': 'stop',
+              }
+            ]
+          },
+        ]));
+        await req.response.close();
+      });
+      final chunks = await provider
+          .streamChat(
+            modelId: 'gpt-4o-mini',
+            messages: const [
+              ChatRequestMessage(role: 'user', content: 'oi')
+            ],
+            options: const ChatRequestOptions(),
+            toolSchemas: const [],
+          )
+          .toList();
+      final usage = chunks.whereType<UsageChunk>().single;
+      expect(usage.promptTokens, 11);
+      expect(usage.completionTokens, 7);
     });
   });
 
   group('descoberta e capacidades', () {
-    test('discoverModels cruza ids reais com catálogo; desconhecidos ficam disabled',
+    test(
+        'discoverModels cruza ids reais com catálogo; desconhecidos ficam disabled',
         () async {
       final s = await _startServer((req) async {
         req.response.headers.contentType = ContentType.json;
@@ -328,8 +334,7 @@ void main() {
       final models = await provider.discoverModels();
       final known = models.firstWhere((m) => m.id == 'gpt-4o-mini');
       expect(known.enabled, isTrue);
-      final unknown =
-          models.firstWhere((m) => m.id == 'modelo-misterioso-v9');
+      final unknown = models.firstWhere((m) => m.id == 'modelo-misterioso-v9');
       // Capacidades desconhecidas NUNCA são presumidas:
       expect(unknown.enabled, isFalse);
       expect(unknown.capabilities.tools, isFalse);
@@ -338,23 +343,19 @@ void main() {
       await s.server.close(force: true);
     });
 
-    test('modelo sem suporte a tools -> model_does_not_support_tools',
+    test('modelo local sem suporte a tools -> model_does_not_support_tools',
         () async {
-      // Servidor local REAL (loopback) para o provider passar do preflight;
-      // a guarda de capacidades roda ANTES de qualquer requisição de rede.
-      final s = await _startServer((req) async {
-        req.response.statusCode = 500;
-        await req.response.close();
-      });
+      // A guarda de capacidades roda ANTES de qualquer requisição de rede;
+      // ollama não tem API key exigida (isLocal), então o preflight passa.
       final provider = OpenAiCompatibleProvider(ProviderConfig(
         id: 'ollama',
         displayName: 'Ollama',
-        baseUrl: 'http://127.0.0.1:${s.server.port}/v1',
+        baseUrl: 'http://127.0.0.1:1/v1',
         modelIds: ['llama3.1:8b'],
       ));
       final chunks = await provider
           .streamChat(
-            modelId: 'llama3.2:3b',
+            modelId: 'llama3.1:8b',
             messages: const [
               ChatRequestMessage(role: 'user', content: 'oi')
             ],
@@ -367,7 +368,40 @@ void main() {
       final err = chunks.single as ErrorChunk;
       expect(err.failure.code, VtErrorCode.modelDoesNotSupportTools);
       await provider.dispose();
-      await s.server.close(force: true);
+    });
+
+    test('capability override confirmado pelo usuário habilita tools',
+        () async {
+      final provider = OpenAiCompatibleProvider(ProviderConfig(
+        id: 'ollama',
+        displayName: 'Ollama',
+        baseUrl: 'http://127.0.0.1:1/v1',
+        modelIds: ['qwen2.5-coder:7b'],
+        capabilityOverrides: {
+          'qwen2.5-coder:7b': CapabilityOverride(tools: true),
+        },
+      ));
+      final m =
+          provider.models.singleWhere((m) => m.id == 'qwen2.5-coder:7b');
+      expect(m.capabilities.tools, isTrue);
+      await provider.dispose();
+    });
+
+    test('override negativo desabilita capacidade do catálogo', () async {
+      final provider = OpenAiCompatibleProvider(ProviderConfig(
+        id: 'openai',
+        displayName: 'OpenAI',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'sk-x',
+        modelIds: ['gpt-4o'],
+        capabilityOverrides: {
+          'gpt-4o': CapabilityOverride(vision: false),
+        },
+      ));
+      final m = provider.models.singleWhere((m) => m.id == 'gpt-4o');
+      expect(m.capabilities.vision, isFalse);
+      expect(m.capabilities.tools, isTrue); // não sobrescrito
+      await provider.dispose();
     });
   });
 }
