@@ -21,6 +21,12 @@ typedef _OpenV2Dart = int Function(
     Pointer<Utf8>, Pointer<Pointer<Void>>, int, Pointer<Pointer<Utf8>>);
 typedef _CloseC = Int32 Function(Pointer<Void>);
 typedef _CloseDart = int Function(Pointer<Void>);
+// Callback de sqlite3_exec: a assinatura nativa é (ptr, int, char**, char**)
+// em C — 4 argumentos. Declarar com 5 (bug antigo) gera ABI mismatch e
+// segfault real quando o SQLite invoca o callback no fim da stream de
+// resultados (ex.: multi-statement DDL). `nullptr` como callback nunca invoca.
+typedef _RowCb = Int32 Function(
+    Pointer<Void>, Int32, Pointer<Pointer<Utf8>>, Pointer<Pointer<Utf8>>);
 typedef _ExecC = Int32 Function(Pointer<Void>, Pointer<Utf8>,
     Pointer<NativeFunction<_RowCb>>, Pointer<Void>, Pointer<Pointer<Utf8>>);
 typedef _ExecDart = int Function(Pointer<Void>, Pointer<Utf8>,

@@ -257,35 +257,58 @@ class AnthropicProvider implements LlmProvider {
     required List<Map<String, Object?>> toolSchemas,
     void Function(StreamHandle handle)? onHandle,
   }) {
-    late final StreamController<StreamChunk> out;
+    // Controller sem callback eager + pump só na escuta: evita a corrida entre
+    // `onHandle` síncrono e a primeira linha SSE (mesma regra do provider
+    // OpenAI-compatible — stream cancelada antes de escutar não deve iniciar
+    // requisição nem tocar em controller já fechado).
+    final out = StreamController<StreamChunk>();
     var cancelled = false;
+    var closed = false;
+    var pumping = false;
     HttpClientResponse? liveRes;
 
-    Future<void> doCancel() async {
-      cancelled = true;
-      final sock = await liveRes?.detachSocket();
-      sock?.destroy();
-      out.add(const DoneChunk('cancelled'));
+    void safeAdd(StreamChunk c) {
+      if (cancelled || closed || out.isClosed) return;
+      out.add(c);
+    }
+
+    Future<void> closeOnce() async {
+      if (closed) return;
+      closed = true;
       await out.close();
     }
 
-    out = StreamController<StreamChunk>();
-    out.onListen = () async {
+    Future<void> doCancel() async {
+      if (cancelled) return;
+      cancelled = true;
       try {
-        await _pump(modelId, messages, options, toolSchemas, (c) {
-          if (!cancelled) out.add(c);
-        }, (r) => liveRes = r);
-      } on VtFailure catch (f) {
-        if (!cancelled) out.add(ErrorChunk(f));
-      } catch (e) {
-        if (!cancelled) {
-          out.add(ErrorChunk(
-              VtFailure(code: VtErrorCode.internalError, message: '$e')));
-        }
-      } finally {
-        if (!out.isClosed) await out.close();
+        final sock = await liveRes?.detachSocket().timeout(
+            const Duration(milliseconds: 200), onTimeout: () => null);
+        sock?.destroy();
+      } catch (_) {
+        // body já em uso — encerrar a subscription também aborta a leitura
       }
-    };
+      safeAdd(const DoneChunk('cancelled'));
+      await closeOnce();
+    }
+
+    Future<void> startPump() async {
+      if (pumping || cancelled || closed) return;
+      pumping = true;
+      try {
+        await _pump(modelId, messages, options, toolSchemas, safeAdd,
+            (r) => liveRes = r);
+      } on VtFailure catch (f) {
+        safeAdd(ErrorChunk(f));
+      } catch (e) {
+        safeAdd(ErrorChunk(
+            VtFailure(code: VtErrorCode.internalError, message: '$e')));
+      } finally {
+        await closeOnce();
+      }
+    }
+
+    out.onListen = () => unawaited(startPump());
     out.onCancel = doCancel;
     if (onHandle != null) {
       onHandle(StreamHandle(doCancel));

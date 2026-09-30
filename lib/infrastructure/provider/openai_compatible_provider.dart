@@ -438,9 +438,13 @@ class OpenAiCompatibleProvider implements LlmProvider {
     required List<Map<String, Object?>> toolSchemas,
     void Function(StreamHandle handle)? onHandle,
   }) {
-    late final StreamController<StreamChunk> out;
+    // Controller SEM callback/onListen: começar a bombear só na escuta evita
+    // corrida entre `onHandle` síncrono e a primeira linha SSE. A stream é
+    // single-subscription, então o primeiro `listen` dispara o pump.
+    final out = StreamController<StreamChunk>();
     var cancelled = false;
     var closed = false;
+    var pumping = false;
     HttpClientResponse? liveRes;
 
     void safeAdd(StreamChunk c) {
@@ -448,8 +452,14 @@ class OpenAiCompatibleProvider implements LlmProvider {
       out.add(c);
     }
 
+    Future<void> closeOnce() async {
+      if (closed) return;
+      closed = true;
+      await out.close();
+    }
+
     Future<void> doCancel() async {
-      if (cancelled || closed) return;
+      if (cancelled) return;
       cancelled = true;
       // Abort REAL da conexão: o servidor percebe o fechamento do socket.
       try {
@@ -460,14 +470,12 @@ class OpenAiCompatibleProvider implements LlmProvider {
         // Body já em uso / stream já fechado — destroy via subscription chega
         // ao servidor de qualquer forma (encerrar a stream aborta a leitura).
       }
-      if (!closed) {
-        closed = true;
-        await out.close();
-      }
+      await closeOnce();
     }
 
-    out = StreamController<StreamChunk>();
-    out.onListen = () async {
+    Future<void> startPump() async {
+      if (pumping || cancelled || closed) return;
+      pumping = true;
       try {
         await _pump(modelId, messages, options, toolSchemas, safeAdd,
             (r) => liveRes = r);
@@ -477,12 +485,11 @@ class OpenAiCompatibleProvider implements LlmProvider {
         safeAdd(ErrorChunk(
             VtFailure(code: VtErrorCode.internalError, message: '$e')));
       } finally {
-        if (!closed) {
-          closed = true;
-          await out.close();
-        }
+        await closeOnce();
       }
-    };
+    }
+
+    out.onListen = () => unawaited(startPump());
     out.onCancel = doCancel;
     if (onHandle != null) {
       onHandle(StreamHandle(doCancel));
