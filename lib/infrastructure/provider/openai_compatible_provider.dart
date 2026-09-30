@@ -200,8 +200,20 @@ class OpenAiCompatibleProvider implements LlmProvider {
     }
     req.write(jsonEncode(body));
     final res = await req.close().timeout(config.timeout);
-    final text = await res.transform(utf8.decoder).join();
+    final text = await _decodeUtf8Lenient(res);
     return (res.statusCode, text);
+  }
+
+  /// Decodificação UTF-8 tolerante: servidores reais podem fechar a conexão
+  /// no meio de um multi-byte (cancelamento/truncamento) — nunca deixar o
+  /// `allowMalformed: false` padrão derrubar a stream inteira.
+  Future<String> _decodeUtf8Lenient(Stream<List<int>> bytes) async {
+    try {
+      return await bytes.transform(const Utf8Decoder(allowMalformed: true)).join();
+    } on SocketException {
+      // conexão abortada no meio do corpo — real em cancelamento
+      rethrow;
+    }
   }
 
   VtFailure _failureForStatus(int status, String body) {
@@ -260,7 +272,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
       req.headers.set(h.key, h.value);
     }
     final res = await req.close().timeout(config.timeout);
-    final text = await res.transform(utf8.decoder).join();
+    final text = await _decodeUtf8Lenient(res);
     return (res.statusCode, text);
   }
 
@@ -352,32 +364,47 @@ class OpenAiCompatibleProvider implements LlmProvider {
   }) {
     late final StreamController<StreamChunk> out;
     var cancelled = false;
+    var closed = false;
     HttpClientResponse? liveRes;
 
+    void safeAdd(StreamChunk c) {
+      if (cancelled || closed || out.isClosed) return;
+      out.add(c);
+    }
+
     Future<void> doCancel() async {
+      if (cancelled || closed) return;
       cancelled = true;
       // Abort REAL da conexão: o servidor percebe o fechamento do socket.
-      final sock = await liveRes?.detachSocket();
-      sock?.destroy();
-      out.add(const DoneChunk('cancelled'));
-      await out.close();
+      try {
+        final sock = await liveRes?.detachSocket().timeout(
+            const Duration(milliseconds: 200), onTimeout: () => _NullSocket());
+        sock?.destroy();
+      } catch (_) {
+        // Body já em uso / stream já fechado — destroy via subscription chega
+        // ao servidor de qualquer forma (encerrar a stream aborta a leitura).
+      }
+      if (!closed) {
+        closed = true;
+        await out.close();
+      }
     }
 
     out = StreamController<StreamChunk>();
     out.onListen = () async {
       try {
-        await _pump(modelId, messages, options, toolSchemas, (c) {
-          if (!cancelled) out.add(c);
-        }, (r) => liveRes = r);
+        await _pump(modelId, messages, options, toolSchemas, safeAdd,
+            (r) => liveRes = r);
       } on VtFailure catch (f) {
-        if (!cancelled) out.add(ErrorChunk(f));
+        safeAdd(ErrorChunk(f));
       } catch (e) {
-        if (!cancelled) {
-          out.add(ErrorChunk(
-              VtFailure(code: VtErrorCode.internalError, message: '$e')));
-        }
+        safeAdd(ErrorChunk(
+            VtFailure(code: VtErrorCode.internalError, message: '$e')));
       } finally {
-        if (!out.isClosed) await out.close();
+        if (!closed) {
+          closed = true;
+          await out.close();
+        }
       }
     };
     out.onCancel = doCancel;
@@ -459,12 +486,12 @@ class OpenAiCompatibleProvider implements LlmProvider {
     }
     onResponse(res);
     if (res.statusCode != 200) {
-      final body = await res.transform(utf8.decoder).join();
+      final body = await _decodeUtf8Lenient(res);
       throw _failureForStatus(res.statusCode, body);
     }
     if (!supportsStreaming) {
       // Resposta única REAL (sem streaming): um Delta + Done.
-      final body = await res.transform(utf8.decoder).join();
+      final body = await _decodeUtf8Lenient(res);
       final decoded = (jsonDecode(body) as Map).cast<String, Object?>();
       final usage = (decoded['usage'] as Map?)?.cast<String, Object?>();
       if (usage != null) {
@@ -488,7 +515,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
     final toolCallAccum = <int, _PartialToolCall>{};
     try {
       await for (final line
-          in res.transform(utf8.decoder).transform(const LineSplitter())) {
+          in res.transform(const Utf8Decoder(allowMalformed: true)).transform(const LineSplitter())) {
         if (!line.startsWith('data:')) continue;
         final payload = line.substring(5).trim();
         if (payload == '[DONE]') break;
@@ -571,4 +598,11 @@ class _PartialToolCall {
   String? id;
   String name = '';
   String args = '';
+}
+
+/// Placeholder para `detachSocket()` que não completou a tempo (cancelamento):
+/// `destroy()` é no-op. Evita bloquear o cancelamento esperando o socket.
+class _NullSocket implements Socket {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }
