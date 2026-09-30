@@ -246,18 +246,62 @@ class OpenAiCompatibleProvider implements LlmProvider {
     required List<ChatRequestMessage> messages,
     required ChatRequestOptions options,
     required List<Map<String, Object?>> toolSchemas,
-  }) async* {
-    final pre = _preflight();
-    if (pre != null) {
-      yield ErrorChunk(pre);
-      return;
+    void Function(StreamHandle handle)? onHandle,
+  }) {
+    late final StreamController<StreamChunk> out;
+    var cancelled = false;
+    HttpClientResponse? liveRes;
+
+    Future<void> doCancel() async {
+      cancelled = true;
+      // Abort REAL da conexão: o servidor percebe o fechamento do socket.
+      final sock = await liveRes?.detachSocket();
+      sock?.destroy();
+      out.add(const DoneChunk('cancelled'));
+      await out.close();
     }
+
+    out = StreamController<StreamChunk>();
+    out.onListen = () async {
+      try {
+        await _pump(modelId, messages, options, toolSchemas, (c) {
+          if (!cancelled) out.add(c);
+        }, (r) => liveRes = r);
+      } on VtFailure catch (f) {
+        if (!cancelled) out.add(ErrorChunk(f));
+      } catch (e) {
+        if (!cancelled) {
+          out.add(ErrorChunk(
+              VtFailure(code: VtErrorCode.internalError, message: '$e')));
+        }
+      } finally {
+        if (!out.isClosed) await out.close();
+      }
+    };
+    out.onCancel = doCancel;
+    if (onHandle != null) {
+      onHandle(StreamHandle(doCancel));
+    }
+    return out.stream;
+  }
+
+  /// Executa a requisição SSE real e emite chunks via [emit]. Lança [VtFailure]
+  /// tipada para erros (nunca fabrica conteúdo).
+  Future<void> _pump(
+    String modelId,
+    List<ChatRequestMessage> messages,
+    ChatRequestOptions options,
+    List<Map<String, Object?>> toolSchemas,
+    void Function(StreamChunk) emit,
+    void Function(HttpClientResponse) onResponse,
+  ) async {
+    final pre = _preflight();
+    if (pre != null) throw pre;
     final model = kKnownModels
         .where((m) => m.id == modelId && m.providerId == id)
         .firstOrNull;
     if (toolSchemas.isNotEmpty && model != null && !model.capabilities.tools) {
-      yield ErrorChunk(VtFailure.modelDoesNotSupportTools(modelId));
-      return;
+      throw VtFailure.modelDoesNotSupportTools(modelId);
     }
     final supportsStreaming = model?.capabilities.streaming ?? true;
     final reqBody = <String, Object?>{
@@ -279,10 +323,9 @@ class OpenAiCompatibleProvider implements LlmProvider {
       if (supportsStreaming) 'stream_options': {'include_usage': true},
     };
 
-    HttpClientRequest req;
     HttpClientResponse res;
     try {
-      req =
+      final req =
           await _http.postUrl(_uri('chat/completions')).timeout(config.timeout);
       for (final h in _authHeaders.entries) {
         req.headers.set(h.key, h.value);
@@ -290,16 +333,35 @@ class OpenAiCompatibleProvider implements LlmProvider {
       req.write(jsonEncode(reqBody));
       res = await req.close().timeout(config.timeout);
     } on SocketException catch (e) {
-      yield ErrorChunk(
-          VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}'));
-      return;
+      throw VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}');
     } on TimeoutException {
-      yield ErrorChunk(VtFailure.timeout(config.timeout));
-      return;
+      throw VtFailure.timeout(config.timeout);
     }
+    onResponse(res);
     if (res.statusCode != 200) {
       final body = await res.transform(utf8.decoder).join();
-      yield ErrorChunk(_failureForStatus(res.statusCode, body));
+      throw _failureForStatus(res.statusCode, body);
+    }
+    if (!supportsStreaming) {
+      // Resposta única REAL (sem streaming): um Delta + Done.
+      final body = await res.transform(utf8.decoder).join();
+      final decoded = (jsonDecode(body) as Map).cast<String, Object?>();
+      final usage = (decoded['usage'] as Map?)?.cast<String, Object?>();
+      if (usage != null) {
+        emit(UsageChunk(
+          promptTokens: (usage['prompt_tokens'] as num?)?.toInt() ?? 0,
+          completionTokens: (usage['completion_tokens'] as num?)?.toInt() ?? 0,
+        ));
+      }
+      final choices = decoded['choices'] as List? ?? const [];
+      if (choices.isNotEmpty) {
+        final c0 = (choices.first as Map).cast<String, Object?>();
+        final content = ((c0['message'] as Map?)?['content'] as String?) ?? '';
+        if (content.isNotEmpty) emit(DeltaChunk(content));
+        emit(DoneChunk(c0['finish_reason'] as String? ?? 'stop'));
+      } else {
+        emit(const DoneChunk('stop'));
+      }
       return;
     }
 
@@ -318,18 +380,18 @@ class OpenAiCompatibleProvider implements LlmProvider {
         }
         final usage = chunk['usage'];
         if (usage is Map) {
-          yield UsageChunk(
+          emit(UsageChunk(
             promptTokens: (usage['prompt_tokens'] as num?)?.toInt() ?? 0,
             completionTokens:
                 (usage['completion_tokens'] as num?)?.toInt() ?? 0,
-          );
+          ));
         }
         final choices = chunk['choices'] as List?;
         if (choices == null || choices.isEmpty) continue;
         final c0 = (choices.first as Map).cast<String, Object?>();
         final delta = (c0['delta'] as Map?)?.cast<String, Object?>();
         final content = delta?['content'] as String?;
-        if (content != null && content.isNotEmpty) yield DeltaChunk(content);
+        if (content != null && content.isNotEmpty) emit(DeltaChunk(content));
         final tcs = delta?['tool_calls'] as List?;
         if (tcs != null) {
           for (final tc in tcs) {
@@ -349,33 +411,33 @@ class OpenAiCompatibleProvider implements LlmProvider {
         if (finish != null) {
           for (final acc in toolCallAccum.values) {
             if (acc.name.isNotEmpty) {
-              yield ToolCallStartChunk(
+              emit(ToolCallStartChunk(
                   callId:
                       acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
                   toolId: acc.name,
-                  argsJson: acc.args);
+                  argsJson: acc.args));
             }
           }
-          yield DoneChunk(finish);
+          emit(DoneChunk(finish));
           return;
         }
       }
       // stream terminou sem finish_reason explícito
       for (final acc in toolCallAccum.values) {
         if (acc.name.isNotEmpty) {
-          yield ToolCallStartChunk(
+          emit(ToolCallStartChunk(
               callId: acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
               toolId: acc.name,
-              argsJson: acc.args);
+              argsJson: acc.args));
         }
       }
-      yield const DoneChunk('stop');
+      emit(const DoneChunk('stop'));
     } on SocketException catch (e) {
       // erro de stream é erro real
-      yield ErrorChunk(VtFailure(
+      throw VtFailure(
           code: VtErrorCode.networkUnavailable,
           message: 'Conexão de streaming interrompida: ${e.message}',
-          retryable: true));
+          retryable: true);
     }
   }
 

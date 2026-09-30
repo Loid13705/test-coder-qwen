@@ -11,6 +11,9 @@ import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 
+import '../../domain/models/pagination.dart';
+import 'chat_records.dart';
+
 // typedefs C -----------------------------------------------------------------
 typedef _OpenV2C = Int32 Function(
     Pointer<Utf8>, Pointer<Pointer<Void>>, Int32, Pointer<Pointer<Utf8>>);
@@ -221,5 +224,105 @@ class SqliteNative {
       }
       return SqliteDb._(lib, pp.value);
     });
+  }
+}
+
+/// Repositório local-first de conversas/mensagens (chat persistido em SQLite).
+///
+/// Usa apenas [SqliteDb] real — sem fallback em memória: se libsqlite3 não
+/// existir, `missing_binary` é reportado por quem abre o DB.
+class ChatRepository {
+  ChatRepository(this.db) {
+    db.execute(kChatSchema);
+  }
+
+  final SqliteDb db;
+
+  static int _toInt(Object? v) => v is int ? v : int.tryParse('$v') ?? 0;
+
+  String createConversation(
+      {required String workspaceId, required String title, String? parentId}) {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final id = 'conv_${DateTime.now().microsecondsSinceEpoch}';
+    db.execute(
+        "INSERT INTO conversations (id, workspace_id, title, parent_id, status, created_at, updated_at)"
+        " VALUES ('$id','$workspaceId','${_esc(title)}',${parentId == null ? 'NULL' : "'$parentId'"},'active','$now','$now')");
+    return id;
+  }
+
+  void touchConversation(String id) =>
+      db.execute("UPDATE conversations SET updated_at='"
+          "${DateTime.now().toUtc().toIso8601String()}' WHERE id='$id'");
+
+  String _esc(String s) => s.replaceAll("'", "''");
+
+  List<Map<String, Object?>> listConversations(String workspaceId,
+          {int limit = 50}) =>
+      db.query(
+          "SELECT id, workspace_id, title, parent_id, created_at FROM conversations"
+          " WHERE workspace_id=? AND status='active'"
+          " ORDER BY updated_at DESC LIMIT ${_toInt(limit)}",
+          [workspaceId]);
+
+  /// Insere mensagem com payload JSON já serializado pelo chamador.
+  void insertMessage({
+    required String id,
+    required String conversationId,
+    required String role,
+    String? modelId,
+    String? mode,
+    required String blocksJson,
+    required String status,
+    String? usageJson,
+    required String createdAt,
+  }) =>
+      db.execute(
+          "INSERT INTO messages (id, conversation_id, role, model_id, mode,"
+          " blocks_json, status, usage_json, created_at) VALUES ("
+          "'$id','$conversationId','$role',"
+          "${modelId == null ? 'NULL' : "'$modelId'"},"
+          "${mode == null ? 'NULL' : "'$mode'"},"
+          "'${_esc(blocksJson)}','$status',"
+          "${usageJson == null ? 'NULL' : "'${_esc(usageJson)}'"},"
+          "'$createdAt')");
+
+  int countMessages(String conversationId) {
+    final rows = db.query(
+        "SELECT COUNT(*) AS c FROM messages WHERE conversation_id=?",
+        [conversationId]);
+    return _toInt(rows.first['c']);
+  }
+
+  /// Página cursor-based (mais recentes primeiro no SQL, devolvida em ordem
+  /// cronológica). `beforeId` = cursor para carregar mais antigo.
+  Page<MessageRecord> pageMessages(String conversationId,
+      {String? beforeId, int pageSize = 50}) {
+    final size = _toInt(pageSize);
+    final rows = beforeId == null
+        ? db.query(
+            "SELECT id, role, model_id, mode, blocks_json, status, usage_json, created_at"
+            " FROM messages WHERE conversation_id=?"
+            " ORDER BY id DESC LIMIT ${size + 1}",
+            [conversationId])
+        : db.query(
+            "SELECT id, role, model_id, mode, blocks_json, status, usage_json, created_at"
+            " FROM messages WHERE conversation_id=? AND id<?"
+            " ORDER BY id DESC LIMIT ${size + 1}",
+            [conversationId, beforeId]);
+    final hasMore = rows.length > size;
+    final items = (hasMore ? rows.sublist(0, size) : rows)
+        .reversed
+        .map(MessageRecord.fromRow)
+        .toList();
+    return Page(
+      items: items,
+      hasMore: hasMore,
+      nextCursor: items.isNotEmpty ? items.first.id : null,
+      prevCursor: items.isNotEmpty ? items.last.id : null,
+      pageSize: size,
+      totalEstimate: _toInt(db.query(
+          "SELECT COUNT(*) AS c FROM messages WHERE conversation_id=?",
+          [conversationId]).first['c']),
+    );
   }
 }
