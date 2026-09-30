@@ -1,7 +1,2 @@
-.dart_tool/
-.packages
-build/
-.flutter-plugins
-.flutter-plugins-dependencies
-pubspec.lock
-tool/regex_probe.dart
+# Compressed files
+*.bundle

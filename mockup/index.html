@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>techVT — Mockup UI v2 (avaliação de design)</title>
+<style>
+  /* ============================================================
+     techVT IDE — Mockup estático para avaliação de layout/design.
+     NÃO é produto; é wireframe de alta fidelidade da spec:
+     activity bar 48px | sidebar 280 | editor | AI panel 400
+     bottom panel 220 | status bar 24 | command palette
+     ============================================================ */
+  :root {
+    --bg0: #0b0e14;      /* janela */
+    --bg1: #11151f;      /* painéis */
+    --bg2: #171c29;      /* superfícies elevadas */
+    --bg3: #1f2635;      /* hover / seleção */
+    --line: #2a3245;
+    --txt0: #e6ebf4;
+    --txt1: #9aa5b8;
+    --txt2: #5d6679;
+    --accent: #4f8cff;   /* azul techVT */
+    --accent2: #8b5cf6;  /* roxo agente */
+    --ok: #3fbf7f;
+    --warn: #e0a63f;
+    --err: #ef5350;
+    --mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
+    --ui: "Inter", "Segoe UI", system-ui, sans-serif;
+    --radius: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--ui);
+    background: var(--bg0);
+    color: var(--txt0);
+    font-size: 13px;
+    overflow: hidden;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ---------- Titlebar / menu bar ---------- */
+  .titlebar {
+    height: 34px; display: flex; align-items: center; gap: 14px;
+    background: var(--bg1); border-bottom: 1px solid var(--line);
+    padding: 0 10px; user-select: none; flex-shrink: 0;
+  }
+  .logo { display: flex; align-items: center; gap: 7px; font-weight: 700; }
+  .logo-mark {
+    width: 18px; height: 18px; border-radius: 5px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: grid; place-items: center; font-size: 10px; color: #fff;
+  }
+  .menu span { color: var(--txt1); padding: 3px 8px; border-radius: 4px; cursor: default; }
+  .menu span:hover { background: var(--bg3); color: var(--txt0); }
+  .win-title { flex: 1; text-align: center; color: var(--txt2); font-size: 12px; }
+  .win-controls { display: flex; gap: 8px; }
+  .wc { width: 12px; height: 12px; border-radius: 50%; background: var(--bg3); border: 1px solid var(--line); }
+  .wc.close:hover { background: var(--err); }
+
+  /* ---------- Shell principal ---------- */
+  .shell { flex: 1; display: flex; min-height: 0; }
+
+  /* Activity bar 48px */
+  .activity {
+    width: 48px; background: var(--bg1); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 4px; flex-shrink: 0;
+  }
+  .act {
+    position: relative; width: 36px; height: 36px; border-radius: var(--radius);
+    display: grid; place-items: center; font-size: 16px; cursor: pointer; color: var(--txt1);
+  }
+  .act:hover { background: var(--bg3); color: var(--txt0); }
+  .act.active { color: var(--txt0); background: var(--bg2); box-shadow: inset 2px 0 0 var(--accent); }
+  .badge {
+    position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px;
+    border-radius: 8px; background: var(--accent); color: #fff; font-size: 9px;
+    display: grid; place-items: center; font-weight: 700;
+  }
+  .badge.warn { background: var(--warn); }
+  .act-spacer { flex: 1; }
+
+  /* Sidebar 280px */
+  .sidebar {
+    width: 280px; min-width: 200px; max-width: 520px; background: var(--bg1);
+    border-right: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .panel-head {
+    height: 32px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 10px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--txt1); border-bottom: 1px solid var(--line);
+  }
+  .panel-actions { display: flex; gap: 6px; }
+  .mini-btn { cursor: pointer; opacity: .7; }
+  .mini-btn:hover { opacity: 1; }
+  .tree { flex: 1; overflow: auto; padding: 6px 0; font-size: 12.5px; }
+  .node { display: flex; align-items: center; gap: 6px; padding: 2.5px 8px; cursor: pointer; white-space: nowrap; color: var(--txt1); }
+  .node:hover { background: var(--bg2); }
+  .node.sel { background: var(--bg3); color: var(--txt0); }
+  .indent { padding-left: 22px; }
+  .indent2 { padding-left: 36px; }
+  .indent3 { padding-left: 50px; }
+  .fname { color: var(--txt0); }
+  .dirty { color: var(--accent2); font-weight: 700; }
+  .ext-dart { color: #64b5f6; }
+  .ext-yaml { color: #f06292; }
+  .ext-md { color: #90a4ae; }
+  .side-foot { border-top: 1px solid var(--line); padding: 6px 10px; color: var(--txt2); font-size: 11px; display:flex; justify-content:space-between; }
+
+  /* Center stack */
+  .center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .workarea { flex: 1; display: flex; min-height: 0; }
+
+  /* Editor tabs 36px */
+  .tabbar {
+    height: 36px; display: flex; align-items: stretch; background: var(--bg1);
+    border-bottom: 1px solid var(--line); flex-shrink: 0; overflow: hidden;
+  }
+  .tab {
+    display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 12px;
+    color: var(--txt1); background: var(--bg1); border-right: 1px solid var(--line);
+    cursor: pointer; white-space: nowrap; border-top: 2px solid transparent;
+  }
+  .tab:hover { background: var(--bg2); }
+  .tab.active { background: var(--bg0); color: var(--txt0); border-top-color: var(--accent); }
+  .tab .x { opacity: 0; font-size: 11px; }
+  .tab:hover .x { opacity: .7; }
+  .tab-overflow { display: grid; place-items: center; padding: 0 10px; color: var(--txt1); cursor: pointer; border-left: 1px solid var(--line); }
+  .tab-spacer { flex: 1; background: var(--bg1); }
+
+  /* Breadcrumbs */
+  .breadcrumbs {
+    height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 14px;
+    font-size: 11.5px; color: var(--txt2); border-bottom: 1px solid var(--line); background: var(--bg0); flex-shrink: 0;
+  }
+  .breadcrumbs b { color: var(--txt1); font-weight: 500; }
+
+  /* Code area */
+  .editor-wrap { flex: 1; display: flex; min-height: 0; overflow: hidden; position: relative; }
+  .gutter {
+    width: 52px; background: var(--bg0); color: var(--txt2); font-family: var(--mono);
+    font-size: 12.5px; text-align: right; padding: 10px 10px 10px 0; line-height: 1.55;
+    user-select: none; flex-shrink: 0; overflow: hidden;
+  }
+  .gutter .cur { color: var(--txt0); background: var(--bg2); display: block; }
+  .code {
+    flex: 1; font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    padding: 10px 14px; overflow: auto; white-space: pre; tab-size: 2;
+  }
+  .k { color: #c792ea; }   /* keyword */
+  .t { color: #82aaff; }   /* type */
+  .s { color: #c3e88d; }   /* string */
+  .n { color: #f78c6c; }   /* number */
+  .c { color: #5d6679; font-style: italic; } /* comment */
+  .f { color: #ffcb6b; }   /* function */
+  .v { color: #e6ebf4; }
+  .add { display:block; background: rgba(63,191,127,.10); border-left: 3px solid var(--ok); margin: 0 -14px; padding: 0 11px; }
+  .del { display:block; background: rgba(239,83,80,.10); border-left: 3px solid var(--err); margin: 0 -14px; padding: 0 11px; text-decoration: line-through; opacity:.65; }
+  .ghost { color: var(--txt2); font-style: italic; background: rgba(139,92,246,.08); border-left: 3px solid var(--accent2); margin: 0 -14px; padding: 0 11px; display:block; }
+  .ghost-hint { color: var(--accent2); font-style: normal; font-size: 10.5px; }
+  .minimap { width: 60px; background: var(--bg0); border-left: 1px solid var(--line); flex-shrink: 0; position: relative; overflow: hidden; }
+  .mm-line { position: absolute; left: 6px; height: 2px; background: var(--txt2); opacity: .5; border-radius: 1px; }
+  .mm-view { position: absolute; left: 0; right: 0; top: 20px; height: 70px; background: rgba(79,140,255,.08); border: 1px solid rgba(79,140,255,.25); }
+
+  /* Bottom panel 220px */
+  .bottom {
+    height: 220px; min-height: 120px; background: var(--bg1); border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .btabs { height: 32px; display: flex; align-items: center; gap: 2px; padding: 0 8px; border-bottom: 1px solid var(--line); }
+  .btab {
+    padding: 4px 10px; font-size: 11.5px; color: var(--txt1); border-radius: 4px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .btab:hover { background: var(--bg2); }
+  .btab.active { color: var(--txt0); background: var(--bg3); }
+  .count-pill { background: var(--bg0); border: 1px solid var(--line); border-radius: 8px; font-size: 9.5px; padding: 0 5px; color: var(--txt1); }
+  .count-pill.err { color: var(--err); border-color: rgba(239,83,80,.4); }
+  .count-pill.ok { color: var(--ok); border-color: rgba(63,191,127,.4); }
+  .btab-spacer { flex: 1; }
+  .bcontent { flex: 1; overflow: auto; font-family: var(--mono); font-size: 12px; padding: 8px 12px; line-height: 1.6; }
+  .prompt { color: var(--ok); }
+  .path { color: #82aaff; }
+  .out { color: var(--txt1); }
+  .ok-l { color: var(--ok); }
+  .warn-l { color: var(--warn); }
+  .err-l { color: var(--err); }
+  .cursor-block { display:inline-block; width: 7px; height: 13px; background: var(--txt1); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- AI Panel 400px ---------- */
+  .ai-panel {
+    width: 400px; min-width: 340px; max-width: 640px; background: var(--bg1);
+    border-left: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .ai-head { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+  .agent-chip {
+    display: flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(79,140,255,.15), rgba(139,92,246,.15));
+    border: 1px solid rgba(139,92,246,.4); color: var(--txt0); border-radius: 20px; padding: 3px 10px; font-size: 11.5px; font-weight: 600;
+  }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent2); animation: pulse 1.6s ease infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(139,92,246,.5);} 50% { box-shadow: 0 0 0 5px rgba(139,92,246,0);} }
+  .state-tag { font-size: 10.5px; color: var(--accent2); border: 1px dashed rgba(139,92,246,.5); padding: 2px 7px; border-radius: 4px; font-family: var(--mono); }
+  .ai-head .sp { flex: 1; }
+  .icon-btn { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 5px; cursor: pointer; color: var(--txt1); font-size: 14px; }
+  .icon-btn:hover { background: var(--bg3); color: var(--txt0); }
+
+  .conv-strip { display: flex; gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .conv { flex-shrink: 0; font-size: 11px; color: var(--txt1); background: var(--bg2); border: 1px solid var(--line); padding: 3px 9px; border-radius: 12px; cursor: pointer; white-space: nowrap; }
+  .conv.active { border-color: var(--accent); color: var(--txt0); background: rgba(79,140,255,.12); }
+  .conv .pin { color: var(--warn); }
+
+  .chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .msg-user { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px 10px 2px 10px; padding: 9px 11px; align-self: flex-end; max-width: 92%; color: var(--txt0); }
+  .msg-meta { font-size: 10px; color: var(--txt2); margin-bottom: 4px; display: flex; gap: 8px; }
+  .md p { margin: 4px 0; line-height: 1.55; }
+  .md code.inline { background: var(--bg0); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-family: var(--mono); font-size: 11.5px; color: #ffcb6b; }
+
+  .block { border: 1px solid var(--line); border-radius: 8px; background: var(--bg2); overflow: hidden; }
+  .block-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 11.5px; color: var(--txt1); background: var(--bg0); border-bottom: 1px solid var(--line); }
+  .block-head .sp { flex: 1; }
+  .block-body { padding: 8px 10px; font-size: 12px; }
+
+  /* Plan block */
+  .plan-step { display: flex; align-items: center; gap: 8px; padding: 3.5px 0; font-size: 12px; }
+  .st { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 9.5px; flex-shrink: 0; font-weight: 700; }
+  .st.ok { background: rgba(63,191,127,.18); color: var(--ok); border: 1px solid var(--ok); }
+  .st.run { background: rgba(79,140,255,.18); color: var(--accent); border: 1px solid var(--accent); animation: spinp 1.4s linear infinite; border-top-color: transparent; }
+  @keyframes spinp { to { transform: rotate(360deg); } }
+  .st.pend { background: var(--bg3); color: var(--txt2); border: 1px solid var(--line); }
+  .step-time { margin-left: auto; color: var(--txt2); font-size: 10.5px; font-family: var(--mono); }
+
+  /* Tool call card */
+  .tool-card { border: 1px solid var(--line); border-radius: 8px; background: var(--bg2); }
+  .tool-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 12px; }
+  .tool-id { font-family: var(--mono); color: #82aaff; font-size: 11.5px; }
+  .status-pill { font-size: 9.5px; padding: 1.5px 7px; border-radius: 8px; font-weight: 700; letter-spacing: .03em; }
+  .s-ok { background: rgba(63,191,127,.15); color: var(--ok); border: 1px solid rgba(63,191,127,.4); }
+  .s-run { background: rgba(79,140,255,.15); color: var(--accent); border: 1px solid rgba(79,140,255,.4); }
+  .s-appr { background: rgba(224,166,63,.15); color: var(--warn); border: 1px solid rgba(224,166,63,.4); }
+  .dur { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--txt2); }
+  .tool-io { border-top: 1px solid var(--line); padding: 7px 10px; font-family: var(--mono); font-size: 11px; color: var(--txt1); }
+  .tool-io .lbl { color: var(--txt2); font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; }
+  .tool-actions { display: flex; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--line); }
+  .act-btn { font-size: 10.5px; padding: 3px 9px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg0); color: var(--txt1); cursor: pointer; }
+  .act-btn:hover { color: var(--txt0); border-color: var(--txt2); }
+
+  /* Approval card */
+  .approval { border: 1px solid rgba(224,166,63,.5); border-radius: 8px; background: rgba(224,166,63,.05); overflow: hidden; }
+  .approval .block-head { background: rgba(224,166,63,.12); color: var(--warn); border-bottom: 1px solid rgba(224,166,63,.3); }
+  .risk-tag { font-size: 9.5px; font-weight: 800; padding: 2px 7px; border-radius: 4px; letter-spacing: .05em; }
+  .risk-local-write { background: rgba(224,166,63,.18); color: var(--warn); border: 1px solid var(--warn); }
+  .appr-grid { display: grid; grid-template-columns: 92px 1fr; gap: 3px 10px; padding: 9px 11px; font-size: 11.5px; }
+  .appr-grid dt { color: var(--txt2); }
+  .appr-grid dd { color: var(--txt0); }
+  .diff-mini { font-family: var(--mono); font-size: 11px; border-top: 1px solid var(--line); padding: 7px 11px; background: var(--bg0); }
+  .appr-btns { display: flex; gap: 7px; padding: 9px 11px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .btn { padding: 5px 13px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: var(--bg2); color: var(--txt1); }
+  .btn.primary { background: var(--ok); border-color: var(--ok); color: #06281a; }
+  .btn.danger { background: transparent; border-color: rgba(239,83,80,.5); color: var(--err); }
+  .btn.ghost { background: transparent; }
+  .btn:hover { filter: brightness(1.15); }
+
+  /* Citations */
+  .cites { display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 10px; border-top: 1px solid var(--line); }
+  .cite { font-size: 10.5px; font-family: var(--mono); color: var(--accent); background: rgba(79,140,255,.08); border: 1px solid rgba(79,140,255,.3); padding: 2px 8px; border-radius: 10px; cursor: pointer; }
+  .cite:hover { background: rgba(79,140,255,.18); }
+
+  /* Cost block */
+  .cost { display: flex; gap: 14px; font-size: 11px; color: var(--txt1); font-family: var(--mono); }
+  .cost b { color: var(--txt0); }
+
+  /* Context chips */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0; }
+  .chip { display: flex; align-items: center; gap: 5px; font-size: 10.5px; background: var(--bg3); border: 1px solid var(--line); border-radius: 12px; padding: 2.5px 9px; color: var(--txt1); }
+  .chip .tok { color: var(--txt2); font-family: var(--mono); font-size: 9.5px; }
+  .chip.warn { border-color: rgba(224,166,63,.5); color: var(--warn); }
+  .chip .rm { cursor: pointer; opacity: .6; }
+  .chip .rm:hover { opacity: 1; }
+
+  /* Composer */
+  .composer { border-top: 1px solid var(--line); background: var(--bg1); padding: 8px 10px 10px; }
+  .sel-row { display: flex; gap: 6px; margin-bottom: 7px; flex-wrap: wrap; }
+  .sel { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--txt1); background: var(--bg2); border: 1px solid var(--line); padding: 3px 8px; border-radius: 5px; cursor: pointer; }
+  .sel b { color: var(--txt0); font-weight: 600; }
+  .sel.mode { border-color: rgba(139,92,246,.5); background: rgba(139,92,246,.1); }
+  .input-box { border: 1px solid var(--line); border-radius: 8px; background: var(--bg0); }
+  .input-box:focus-within { border-color: var(--accent); }
+  .input-area { min-height: 54px; padding: 9px 11px; font-size: 12.5px; color: var(--txt1); outline: none; }
+  .input-area .caret { display:inline-block; width:1.5px; height:14px; background: var(--txt0); vertical-align:-2px; animation: blink 1s steps(1) infinite; }
+  .input-foot { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--line); }
+  .if-btn { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; cursor: pointer; color: var(--txt2); }
+  .if-btn:hover { background: var(--bg3); color: var(--txt0); }
+  .tok-ind { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--txt2); }
+  .send { width: 26px; height: 26px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; cursor: pointer; font-size: 13px; }
+  .stop { background: var(--err); }
+
+  /* Status bar 24px */
+  .statusbar {
+    height: 24px; display: flex; align-items: center; gap: 0; background: var(--bg1);
+    border-top: 1px solid var(--line); font-size: 11px; color: var(--txt1); flex-shrink: 0; user-select: none;
+  }
+  .sb { padding: 0 9px; height: 100%; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .sb:hover { background: var(--bg3); color: var(--txt0); }
+  .sb.accent { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; font-weight: 600; }
+  .sb-sep { width: 1px; height: 12px; background: var(--line); }
+  .sb-spacer { flex: 1; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dot.g { background: var(--ok); } .dot.y { background: var(--warn); } .dot.r { background: var(--err); }
+
+  /* Command palette overlay */
+  .overlay { position: fixed; inset: 0; background: rgba(5,7,10,.55); display: none; z-index: 50; backdrop-filter: blur(2px); }
+  .overlay.show { display: block; }
+  .palette {
+    width: 560px; max-width: 90vw; margin: 9vh auto 0; background: var(--bg2);
+    border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 18px 60px rgba(0,0,0,.6); overflow: hidden;
+  }
+  .pal-input { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .pal-input input { flex: 1; background: transparent; border: none; outline: none; color: var(--txt0); font-size: 14px; font-family: var(--ui); }
+  .pal-list { max-height: 320px; overflow: auto; padding: 6px; }
+  .pal-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+  .pal-item:hover, .pal-item.sel { background: var(--bg3); }
+  .pal-item .cat { font-size: 10px; color: var(--txt2); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; }
+  .pal-item .kbd { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--txt2); }
+  .hl { color: var(--accent); font-weight: 700; }
+  .pal-foot { display: flex; gap: 14px; padding: 7px 12px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--txt2); }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 5px; border: 2px solid var(--bg1); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  .note { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: var(--bg2); border: 1px solid var(--line); color: var(--txt1); font-size: 11px; padding: 5px 14px; border-radius: 20px; opacity: .9; z-index: 10; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ TITLEBAR ============ -->
+  <div class="titlebar">
+    <div class="logo"><div class="logo-mark">⌁</div>techVT</div>
+    <nav class="menu"><span>Arquivo</span><span>Editar</span><span>Seleção</span><span>Ver</span><span>Ir</span><span>Ajuda</span></nav>
+    <div class="win-title">meu_jogo_flame — techVT · techVT-Agent-01</div>
+    <div class="win-controls"><div class="wc"></div><div class="wc"></div><div class="wc close"></div></div>
+  </div>
+
+  <div class="shell">
+    <!-- ============ ACTIVITY BAR 48px ============ -->
+    <aside class="activity">
+      <div class="act active" title="Explorer">🗂</div>
+      <div class="act" title="Search">🔍</div>
+      <div class="act" title="Source Control">⎇<span class="badge">3</span></div>
+      <div class="act" title="Run/Debug">▶</div>
+      <div class="act" title="Tools">🧰<span class="badge warn">1</span></div>
+      <div class="act" title="Game Dev">🎮</div>
+      <div class="act" title="Browser">🌐</div>
+      <div class="act" title="Bugs">🐞</div>
+      <div class="act-spacer"></div>
+      <div class="act" title="Settings">⚙</div>
+    </aside>
+
+    <!-- ============ SIDEBAR 280px ============ -->
+    <aside class="sidebar">
+      <div class="panel-head">
+        <span>Explorer — meu_jogo_flame</span>
+        <div class="panel-actions"><span class="mini-btn">＋</span><span class="mini-btn">⌃</span><span class="mini-btn">⟳</span></div>
+      </div>
+      <div class="tree">
+        <div class="node"><span>▾</span>📁 <b>lib</b></div>
+        <div class="node indent"><span>▾</span>📁 game</div>
+        <div class="node indent2"><span>▸</span>📁 components</div>
+        <div class="node indent2"><span>▾</span>📁 scenes</div>
+        <div class="node indent3 sel"><span class="ext-dart">◆</span> <span class="fname">world_scene.dart</span> <span class="dirty">●</span></div>
+        <div class="node indent3"><span class="ext-dart">◆</span> <span class="fname">menu_scene.dart</span></div>
+        <div class="node indent2"><span class="ext-dart">◇</span> <span class="fname">game_overlays.dart</span></div>
+        <div class="node indent"><span>▸</span>📁 state</div>
+        <div class="node indent"><span>▸</span>📁 net</div>
+        <div class="node indent"><span class="ext-dart">◇</span> <span class="fname">main.dart</span></div>
+        <div class="node"><span>▸</span>📁 test</div>
+        <div class="node"><span>▸</span>📁 assets</div>
+        <div class="node"><span>▸</span>📁 .dart_tool</div>
+        <div class="node"><span class="ext-md">◈</span> <span class="fname">README.md</span></div>
+        <div class="node"><span class="ext-yaml">◈</span> <span class="fname">pubspec.yaml</span> <span class="dirty">●</span></div>
+        <div class="node"><span class="ext-yaml">◈</span> <span class="fname">analysis_options.yaml</span></div>
+      </div>
+      <div class="side-foot"><span>trust: workspace ✓</span><span>índice: 1.284 arquivos</span></div>
+    </aside>
+
+    <!-- ============ CENTER ============ -->
+    <div class="center">
+      <div class="workarea">
+        <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+
+          <!-- Tab bar 36px -->
+          <div class="tabbar">
+            <div class="tab"><span class="ext-dart">◇</span> main.dart <span class="x">✕</span></div>
+            <div class="tab active"><span class="ext-dart">◆</span> world_scene.dart <span class="dirty">●</span> <span class="x">✕</span></div>
+            <div class="tab"><span class="ext-yaml">◈</span> pubspec.yaml <span class="dirty">●</span> <span class="x">✕</span></div>
+            <div class="tab"><span>⇄</span> diff: player.dart <span class="x">✕</span></div>
+            <div class="tab-overflow" title="4 tabs ocultas">⋯ 4</div>
+            <div class="tab-spacer"></div>
+            <div class="tab" title="Split horizontal"><span>⊟</span></div>
+            <div class="tab" title="Maximizar painel"><span>⤢</span></div>
+          </div>
+
+          <!-- Breadcrumbs -->
+          <div class="breadcrumbs">
+            lib › game › scenes › <b>world_scene.dart</b> › WorldScene › onMount()
+            <span style="margin-left:auto;">dart analyze ✓ &nbsp; LSP: dart-language-server ●&nbsp;&nbsp;</span>
+          </div>
+
+          <!-- Editor + minimap -->
+          <div class="editor-wrap">
+            <div class="gutter">
+              <div>…</div><div>38</div><div>39</div><div>40</div><div>41</div><div>42</div><div>43</div><div class="cur">44</div><div>45</div><div>46</div><div>47</div><div>48</div><div>49</div><div>50</div><div>51</div><div>52</div><div>53</div><div>54</div><div>55</div><div>56</div><div>57</div><div>58</div><div>59</div><div>60</div><div>…</div>
+            </div>
+            <div class="code"><span class="c">// lib/game/scenes/world_scene.dart</span>
+<span class="k">class</span> <span class="t">WorldScene</span> <span class="k">extends</span> <span class="t">World</span> {
+  <span class="k">late final</span> <span class="t">HudLabel</span> <span class="v">_fps</span>;
+  <span class="k">late final</span> <span class="t">SpawnController</span> <span class="v">_spawns</span>;
+
+  <span class="t">WorldScene</span>(<span class="t">GameState</span> <span class="v">state</span>) : <span class="v">_state</span> = <span class="v">state</span>;
+
+  <span class="t">Future</span>&lt;<span class="k">void</span>&gt; <span class="f">onMount</span>() <span class="k">async</span> {
+    <span class="k">await</span> <span class="f">Flame</span>.<span class="f">audio</span>.<span class="f">loadAllFromCache</span>();
+<span class="add">+   <span class="k">await</span> <span class="v">_spawns</span>.<span class="f">preloadTiles</span>(<span class="v">region</span>: <span class="v">_state</span>.<span class="v">lastRegion</span>);</span>
+<span class="add">+   <span class="v">camera</span>.<span class="v">viewport</span>.<span class="f">apply</span>(<span class="t">FixedResolutionViewport</span>(</span>
+<span class="add">+     <span class="v">designSize</span>: <span class="k">const</span> <span class="t">Vector2</span>(<span class="n">1280</span>, <span class="n">720</span>),</span>
+<span class="add">+   ));</span>
+<span class="del">-   <span class="v">camera</span>.<span class="f">follow</span>(<span class="v">player</span>);</span>
+<span class="ghost">    <span class="v">camera</span>.<span class="f">followWithInertia</span>(<span class="v">player</span>, maxSpeed: <span class="n">6.0</span>);  <span class="ghost-hint">⌥ Tab aceitar · Esc descartar · por gpt-4o-mini</span></span>
+    <span class="f">add</span>(<span class="v">_hud</span>);
+    <span class="f">add</span>(<span class="t">BackgroundLayer</span>(<span class="v">parallax</span>: <span class="k">true</span>));
+  }
+
+  <span class="k">void</span> <span class="f">update</span>(<span class="t">double</span> <span class="v">dt</span>) {
+    <span class="v">_spawns</span>.<span class="f">tick</span>(<span class="v">dt</span>);
+    <span class="v">_fps</span>.<span class="f">setText</span>(<span class="s">'${</span><span class="v">fps</span>.<span class="f">toStringAsFixed</span>(<span class="n">0</span>)<span class="s">} fps'</span>);
+  }
+}</div>
+            <div class="minimap">
+              <div class="mm-view"></div>
+              <div class="mm-line" style="top:24px;width:34px;"></div><div class="mm-line" style="top:30px;width:44px;"></div>
+              <div class="mm-line" style="top:36px;width:28px;"></div><div class="mm-line" style="top:46px;width:40px;"></div>
+              <div class="mm-line" style="top:52px;width:22px;"></div><div class="mm-line" style="top:62px;width:46px;"></div>
+              <div class="mm-line" style="top:68px;width:30px;"></div><div class="mm-line" style="top:74px;width:38px;"></div>
+              <div class="mm-line" style="top:84px;width:26px;background:var(--ok);"></div>
+              <div class="mm-line" style="top:90px;width:42px;background:var(--ok);"></div>
+              <div class="mm-line" style="top:96px;width:36px;background:var(--err);"></div>
+              <div class="mm-line" style="top:106px;width:44px;"></div><div class="mm-line" style="top:112px;width:30px;"></div>
+              <div class="mm-line" style="top:126px;width:38px;"></div><div class="mm-line" style="top:132px;width:42px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ AI PANEL 400px ============ -->
+        <aside class="ai-panel">
+          <div class="ai-head">
+            <div class="agent-chip"><span class="pulse"></span>techVT-Agent-01</div>
+            <span class="state-tag">executing_tool</span>
+            <div class="sp"></div>
+            <div class="icon-btn" title="Nova conversa">＋</div>
+            <div class="icon-btn" title="Histórico">🕘</div>
+            <div class="icon-btn" title="Context inspector">◎</div>
+            <div class="icon-btn" title="Fechar painel">✕</div>
+          </div>
+
+          <div class="conv-strip">
+            <div class="conv active"><span class="pin">📌</span> Otimizar spawn tiles</div>
+            <div class="conv">Fix audio cache miss</div>
+            <div class="conv">Refactor game/net</div>
+            <div class="conv">Global · dúvidas Flame</div>
+          </div>
+
+          <div class="chat">
+            <div class="msg-user">
+              <div class="msg-meta"><span>você</span><span>14:02</span><span>@file ×2</span></div>
+              Travando a 40fps quando muitos tiles aparecem. Quero pré-carregar por região e usar viewport fixo 1280×720.
+            </div>
+
+            <div>
+              <div class="msg-meta"><span>techVT-Agent-01</span><span>Agent</span><span>gpt-4o-mini</span><span>posture: executora</span></div>
+              <div class="block md" style="border-radius:10px 10px 10px 2px;">
+                <div class="block-body">
+                  <p>Analisei <code class="inline">world_scene.dart</code> e o profile do terminal. O gargalo é <code class="inline">onLoad</code> síncrono dos tiles + câmera sem limite de resolução. Plano:</p>
+                </div>
+
+                <!-- Plan block -->
+                <div style="padding:0 10px 8px;">
+                  <div class="block" style="background:var(--bg0);">
+                    <div class="block-head">🗺 Plano · run#41c9 <span class="sp"></span><span style="font-size:10px;color:var(--txt2);">3/5 passos</span></div>
+                    <div class="block-body" style="padding:6px 10px;">
+                      <div class="plan-step"><span class="st ok">✓</span> Ler perfil de performance do terminal <span class="step-time">1.2s</span></div>
+                      <div class="plan-step"><span class="st ok">✓</span> Localizar hot path em SpawnController <span class="step-time">0.8s</span></div>
+                      <div class="plan-step"><span class="st run"></span> Aplicar diff em world_scene.dart <span class="step-time">aguardando aprovação</span></div>
+                      <div class="plan-step"><span class="st pend">○</span> Rodar flutter analyze + testes <span class="step-time">pending</span></div>
+                      <div class="plan-step"><span class="st pend">○</span> Hot reload e medir fps real <span class="step-time">pending</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Tool call cards -->
+                <div style="padding:0 10px 8px; display:flex; flex-direction:column; gap:8px;">
+                  <div class="tool-card">
+                    <div class="tool-head">🔧 <span class="tool-id">term.read_output</span><span class="status-pill s-ok">SUCCEEDED</span><span class="dur">42ms</span></div>
+                    <div class="tool-io">
+                      <div class="lbl">input</div><div>{ session: "flutter run #2", lines: 200 }</div>
+                      <div class="lbl" style="margin-top:4px;">output</div><div>"avg frame 24.9ms — spike 41ms em tileBatch"</div>
+                    </div>
+                    <div class="tool-actions"><span class="act-btn">expandir</span><span class="act-btn">copiar</span><span class="act-btn">ver log</span><span class="act-btn" style="margin-left:auto;font-family:var(--mono);">audit#a91f</span></div>
+                  </div>
+
+                  <div class="tool-card" style="border-color:rgba(79,140,255,.4);">
+                    <div class="tool-head">🔧 <span class="tool-id">editor.apply_diff</span><span class="status-pill s-appr">PENDING_APPROVAL</span><span class="dur">—</span></div>
+                    <div class="tool-io"><div class="lbl">input</div><div>{ file: "lib/game/scenes/world_scene.dart", hunks: 2 }</div></div>
+                    <div class="tool-actions"><span class="act-btn">ver diff completo</span><span class="act-btn">editar argumentos</span><span class="act-btn" style="margin-left:auto;">rollback disponível</span></div>
+                  </div>
+                </div>
+
+                <!-- Approval card -->
+                <div style="padding:0 10px 10px;">
+                  <div class="approval">
+                    <div class="block-head">🛡 Aprovação necessária <span class="risk-tag risk-local-write">local_write</span><span class="sp"></span><span style="font-size:10px;">expira em 4:32</span></div>
+                    <dl class="appr-grid">
+                      <dt>Tool</dt><dd style="font-family:var(--mono);">fs.write_text → checkpoint.create antes</dd>
+                      <dt>Efeito</dt><dd>modifica 1 arquivo, +4/−1 linhas</dd>
+                      <dt>Reversível</dt><dd style="color:var(--ok);">sim — cp#77b2 registrado</dd>
+                      <dt>Custo est.</dt><dd>R$ 0,00 (sem nova chamada LLM)</dd>
+                      <dt>Justificativa</dt><dd>Elimina onLoad síncrono identificado no profile</dd>
+                    </dl>
+                    <div class="diff-mini">
+                      <span style="color:var(--ok);">+ await _spawns.preloadTiles(region: _state.lastRegion);</span><br>
+                      <span style="color:var(--ok);">+ camera.viewport = FixedResolutionViewport(...);</span><br>
+                      <span style="color:var(--err);">- camera.follow(player);</span>
+                    </div>
+                    <div class="appr-btns">
+                      <button class="btn primary">✓ Aprovar</button>
+                      <button class="btn danger">✕ Rejeitar</button>
+                      <button class="btn ghost">Editar args</button>
+                      <button class="btn ghost">Aprovar similares</button>
+                      <button class="btn ghost">Auditoria</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Citations -->
+                <div class="cites">
+                  <span class="cite">📄 world_scene.dart:44-47</span>
+                  <span class="cite">📄 spawn_controller.dart:12</span>
+                  <span class="cite">🖥 term#2 out:118</span>
+                  <span class="cite">🧠 mem#31 (projeto)</span>
+                </div>
+
+                <!-- Cost block -->
+                <div style="padding:8px 10px;border-top:1px solid var(--line);">
+                  <div class="cost"><span>tokens <b>3.412 in / 618 out</b></span><span>custo <b>R$ 0,09</b></span><span>TTFT <b>0,8s</b></span><span>budget run <b>12%</b></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Context chips -->
+          <div class="chips">
+            <span class="chip">@file world_scene.dart <span class="tok">1.2k tk</span><span class="rm">✕</span></span>
+            <span class="chip">@selection L44-47 <span class="tok">86 tk</span><span class="rm">✕</span></span>
+            <span class="chip">@git-diff <span class="tok">410 tk</span><span class="rm">✕</span></span>
+            <span class="chip warn">⚠ @terminal-output truncado 8k→4k <span class="rm">✕</span></span>
+            <span class="chip">＋ contexto</span>
+          </div>
+
+          <!-- Composer -->
+          <div class="composer">
+            <div class="sel-row">
+              <span class="sel mode">modo: <b>Agent</b> ▾</span>
+              <span class="sel">model: <b>gpt-4o-mini</b> · tools ✓ vision ✗ <b>118k ctx</b> ▾</span>
+              <span class="sel">postura: <b>Executora</b> ▾</span>
+              <span class="sel">aprovação: <b>Review Each Change</b> ▾</span>
+              <span class="sel" style="margin-left:auto;"><span class="dot g"></span> openai ●</span>
+            </div>
+            <div class="input-box">
+              <div class="input-area" contenteditable="false">roda os testes de spawn depois de aplicar<span class="caret"></span></div>
+              <div class="input-foot">
+                <span class="if-btn" title="Anexar imagem/arquivo">📎</span>
+                <span class="if-btn" title="Voz — indisponível: nenhuma API STT configurada">🎙̶</span>
+                <span class="if-btn" title="Slash commands">/</span>
+                <span class="if-btn" title="Aprovações pendentes (1)">🛡<sup style="color:var(--warn);font-size:9px;">1</sup></span>
+                <span class="tok-ind">~4.2k / 128k tk · ≈R$0,11</span>
+                <span class="if-btn" title="Explicar seleção com IA">✨</span>
+                <div class="send stop" title="Parar streaming (cancela request real)">■</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- ============ BOTTOM PANEL 220px ============ -->
+      <div class="bottom">
+        <div class="btabs">
+          <div class="btab active">Terminal <span class="count-pill">pty#1</span></div>
+          <div class="btab">Problemas <span class="count-pill err">2E 1W</span></div>
+          <div class="btab">Output</div>
+          <div class="btab">Tests <span class="count-pill ok">14 ✓</span></div>
+          <div class="btab">Debug</div>
+          <div class="btab">Git</div>
+          <div class="btab">Tasks</div>
+          <div class="btab">Approvals <span class="count-pill">1</span></div>
+          <div class="btab">Logs</div>
+          <div class="btab-spacer"></div>
+          <div class="btab" title="Novo terminal">＋</div>
+          <div class="btab" title="Split">⊟</div>
+          <div class="btab" title="Maximizar">▲</div>
+        </div>
+        <div class="bcontent">
+<span class="prompt">➜</span> <span class="path">~/dev/meu_jogo_flame</span> <span class="out">(perf/spawn-tiles)</span> flutter analyze<br>
+<span class="out">Analyzing meu_jogo_flame...</span><br>
+<span class="warn-l">warning</span> • Unused import: 'package:flutter/services.dart' • lib/main.dart:3:8 (unused_import)<br>
+<span class="err-l">error</span> • The argument type 'Vector2?' can't be assigned • lib/game/components/player.dart:88:21<br>
+<span class="err-l">error</span> • Missing required parameter: 'atlas' • lib/game/scenes/menu_scene.dart:24:9<br>
+<span class="out">3 issues found. (ran in 4.2s)</span><br>
+<span class="prompt">➜</span> <span class="path">~/dev/meu_jogo_flame</span> flutter test test/game/spawn_test.dart<br>
+<span class="ok-l">✔ spawn_controller pré-carrega região anterior (312ms)</span><br>
+<span class="ok-l">✔ viewport fixado mantém aspect 16:9 (48ms)</span><br>
+<span class="out">exit 0 · 2/2 passed · sidecar pty: v0.4.1 ok · browser sidecar: </span><span class="warn-l">missing_binary</span><br>
+<span class="prompt">➜</span> <span class="cursor-block"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ STATUS BAR 24px ============ -->
+  <footer class="statusbar">
+    <div class="sb accent">⎇ perf/spawn-tiles ↑2</div>
+    <div class="sb"><span class="dot r"></span>2 <span class="dot y"></span>1 problems</div>
+    <div class="sb">✓ 14/14 testes</div>
+    <div class="sb-sep"></div>
+    <div class="sb"><span class="dot g"></span> provider openai ● saudável</div>
+    <div class="sb"><span class="dot y"></span> sidecar browser: missing_binary — instalar</div>
+    <div class="sb-sep"></div>
+    <div class="sb">🤖 techVT-Agent-01 · Agent · Executora</div>
+    <div class="sb">🛡 Review Each Change · 1 pendente</div>
+    <div class="sb">Σ 3.4k/0.6k tk · R$0,09</div>
+    <div class="sb-spacer"></div>
+    <div class="sb">Dart 3.5 · Flutter 3.24</div>
+    <div class="sb">Spaces: 2 · UTF-8 · LF</div>
+    <div class="sb">Ln 44, Col 12</div>
+    <div class="sb" id="palhint">⌘⇧P</div>
+  </footer>
+</div>
+
+<!-- ============ COMMAND PALETTE ============ -->
+<div class="overlay" id="ovl">
+  <div class="palette">
+    <div class="pal-input">⌁ <input id="palq" placeholder="Digite um comando… (Ctrl/Cmd+Shift+P)"> <span style="color:var(--txt2);font-size:11px;">&gt;_ comandos</span></div>
+    <div class="pal-list" id="pallist"></div>
+    <div class="pal-foot"><span>↑↓ navegar</span><span>↵ executar</span><span>esc fechar</span><span style="margin-left:auto;">164 tools · paginação 30/página</span></div>
+  </div>
+</div>
+
+<div class="note">Mockup de avaliação de design — não é produto funcional · conteúdo ilustrativo da spec techVT · Ctrl/Cmd+Shift+P abre a paleta</div>
+
+<script>
+  const commands = [
+    ["agen","Chat: New Conversation","chat","⌘N"],
+    ["agen","Agent: Start Plan","agent","⌘⇧A"],
+    ["agen","Agent: Approve Pending","agent","⌘⇧Y"],
+    ["agen","Agent: Reject All","agent","⌘⇧⌫"],
+    ["agen","Agent Run: Rollback Last","agent","⌘⇧Z"],
+    ["mode","Model: Select Model","models","⌘M"],
+    ["mode","Mode: Switch to Agent","modes","⌘⇧1"],
+    ["mode","Mode: Game Dev","modes","⌘⇧G"],
+    ["post","Posture: Security First","posture",""],
+    ["post","Approval Posture: Review Each Change","posture",""],
+    ["edit","Editor: Format Document","editor","⇧⌥F"],
+    ["edit","Editor: Toggle Inline AI","editor","⌘⇧Space"],
+    ["term","Terminal: Create New","terminal","⌃`"],
+    ["git","Git: Commit Staged","git",""],
+    ["git","Git: Push","git",""],
+    ["brow","Browser: Open Embedded","browser",""],
+    ["web","Web Search: Current Selection","web",""],
+    ["game","Game: Run Hot Reload","game","⌘\\"],
+    ["game","Game: Export Bundle","game",""],
+    ["bug","Bug: Create From Selection","bug",""],
+    ["tool","Tools: Open Catalog","tools",""],
+    ["sett","Settings: Open","settings","⌘,"],
+    ["chec","Checkpoint: Create","checkpoint",""],
+    ["chec","Checkpoint: Restore Last","checkpoint",""],
+    ["heal","Health: Run Diagnostics","health",""]
+  ];
+  const list = document.getElementById('pallist');
+  const q = document.getElementById('palq');
+  function render(filter){
+    const f = (filter||'').toLowerCase();
+    const hits = commands.filter(c => !f || c[0].includes(f) || c[1].toLowerCase().includes(f)).slice(0,9);
+    list.innerHTML = hits.map((c,i)=>{
+      let label = c[1];
+      if(f){ const idx = label.toLowerCase().indexOf(f); if(idx>-1) label = label.slice(0,idx)+'<span class="hl">'+label.slice(idx,idx+f.length)+'</span>'+label.slice(idx+f.length); }
+      return `<div class="pal-item ${i===0?'sel':''}"><span>${label}</span><span class="cat">${c[2]}</span><span class="kbd">${c[3]||''}</span></div>`;
+    }).join('') || '<div class="pal-item" style="color:var(--txt2)">nenhum comando corresponde</div>';
+  }
+  render('agen');
+  q.addEventListener('input', ()=>render(q.value.replace(/^>/,'')));
+  const ovl = document.getElementById('ovl');
+  window.addEventListener('keydown', e=>{
+    if((e.ctrlKey||e.metaKey) && e.shiftKey && (e.key==='P'||e.key==='p')){ e.preventDefault(); ovl.classList.toggle('show'); if(ovl.classList.contains('show')) q.focus(); }
+    if(e.key==='Escape') ovl.classList.remove('show');
+  });
+  ovl.addEventListener('click', e=>{ if(e.target===ovl) ovl.classList.remove('show'); });
+
+  // interações cosméticas: abas do bottom panel + tabs do editor + activity bar + conversas
+  document.querySelectorAll('.btab').forEach(t => t.onclick = () => {
+    if(!t.firstChild || !t.firstChild.textContent.trim()) return;
+    document.querySelector('.btab.active')?.classList.remove('active'); t.classList.add('active');
+  });
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    if(!t.querySelector('span')) return;
+    document.querySelector('.tab.active')?.classList.remove('active'); t.classList.add('active');
+  });
+  document.querySelectorAll('.act').forEach(t => t.onclick = () => {
+    document.querySelector('.act.active')?.classList.remove('active'); t.classList.add('active');
+  });
+  document.querySelectorAll('.conv').forEach(t => t.onclick = () => {
+    document.querySelector('.conv.active')?.classList.remove('active'); t.classList.add('active');
+  });
+</script>
+</body>
+</html>
