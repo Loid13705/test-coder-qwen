@@ -1,2 +1,5 @@
 # Compressed files
 *.bundle
+# UI mockups (locais, nunca versionar)
+mockup/
+*.bundle
