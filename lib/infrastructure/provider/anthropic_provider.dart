@@ -12,7 +12,8 @@ import 'dart:io';
 
 import '../../domain/errors/redaction.dart';
 import '../../domain/errors/vt_failure.dart';
-import 'openai_compatible_provider.dart' show ProviderConfig;
+import 'openai_compatible_provider.dart'
+    show ProviderConfig, utf8ChunksIncremental;
 import 'provider_contract.dart';
 
 class AnthropicProvider implements LlmProvider {
@@ -86,13 +87,48 @@ class AnthropicProvider implements LlmProvider {
     };
   }
 
+  /// Decodificação UTF-8 tolerante (mesma armadilha do OpenAI-compatible:
+  /// chunk HTTP pode terminar no meio de um multi-byte) + split de linhas
+  /// incremental — nunca `LineSplitter` cru em stream de rede.
+  Future<String> _decodeUtf8Lenient(Stream<List<int>> bytes) async {
+    final sb = StringBuffer();
+    await for (final part in utf8ChunksIncremental(bytes)) {
+      sb.write(part);
+    }
+    return sb.toString();
+  }
+
+  Stream<String> _sseLinesFrom(Stream<List<int>> bytes) async* {
+    final buf = StringBuffer();
+    await for (final part in utf8ChunksIncremental(bytes)) {
+      buf.write(part);
+      final s = buf.toString();
+      var start = 0;
+      while (true) {
+        final nl = s.indexOf('\n', start);
+        if (nl < 0) break;
+        var line = s.substring(start, nl);
+        if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
+        yield line;
+        start = nl + 1;
+      }
+      if (start > 0) {
+        final rest = s.substring(start);
+        buf.clear();
+        buf.write(rest);
+      }
+    }
+    final tail = buf.toString();
+    if (tail.isNotEmpty) yield tail;
+  }
+
   Future<(int, String)> _get(String path) async {
     final req = await _http.getUrl(_uri(path)).timeout(config.timeout);
     for (final h in _headers.entries) {
       req.headers.set(h.key, h.value);
     }
     final res = await req.close().timeout(config.timeout);
-    final text = await res.transform(utf8.decoder).join();
+    final text = await _decodeUtf8Lenient(res);
     return (res.statusCode, text);
   }
 
@@ -195,7 +231,7 @@ class AnthropicProvider implements LlmProvider {
         ],
       }));
       final res = await req.close().timeout(config.timeout);
-      final body = await res.transform(utf8.decoder).join();
+      final body = await _decodeUtf8Lenient(res);
       if (res.statusCode != 200) throw _failureForStatus(res.statusCode, body);
       final decoded = (jsonDecode(body) as Map).cast<String, Object?>();
       final blocks = decoded['content'] as List? ?? const [];
@@ -317,7 +353,7 @@ class AnthropicProvider implements LlmProvider {
     }
     onResponse(res);
     if (res.statusCode != 200) {
-      final err = await res.transform(utf8.decoder).join();
+      final err = await _decodeUtf8Lenient(res);
       throw _failureForStatus(res.statusCode, err);
     }
 
@@ -328,8 +364,7 @@ class AnthropicProvider implements LlmProvider {
     final blockJson = <int, StringBuffer>{};
 
     try {
-      await for (final line
-          in res.transform(utf8.decoder).transform(const LineSplitter())) {
+      await for (final line in _sseLinesFrom(res)) {
         if (!line.startsWith('data:')) continue;
         final payload = line.substring(5).trim();
         if (payload.isEmpty) continue;

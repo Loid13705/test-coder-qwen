@@ -232,7 +232,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
   /// `allowMalformed: false` padrão derrubar a stream inteira.
   Future<String> _decodeUtf8Lenient(Stream<List<int>> bytes) async {
     final sb = StringBuffer();
-    await for (final part in _utf8Chunks(bytes)) {
+    await for (final part in utf8ChunksIncremental(bytes)) {
       sb.write(part);
     }
     return sb.toString();
@@ -249,46 +249,8 @@ class OpenAiCompatibleProvider implements LlmProvider {
   /// 2. `LineSplitter` faz o mesmo buffer interno sem controle.
   /// Por isso o parsing é manual: acumulamos bytes pendentes e só decodificamos
   /// o prefixo completo; linha parcial fica no buffer até o próximo chunk.
-  Stream<String> _utf8Chunks(Stream<List<int>> bytes) async* {
-    var pending = <int>[];
-    await for (final chunk in bytes) {
-      pending.addAll(chunk);
-      final consumed = _completePrefixLength(pending);
-      if (consumed == 0) continue;
-      final complete = pending.sublist(0, consumed);
-      pending = pending.sublist(consumed);
-      yield utf8.decode(complete, allowMalformed: true);
-    }
-    if (pending.isNotEmpty) {
-      // cauda truncada pelo servidor/cancelamento — leniente no flush final
-      yield utf8.decode(pending, allowMalformed: true);
-    }
-  }
-
-  /// Comprimento do prefixo de [b] que forma sequências UTF-8 completas;
-  /// qualquer sufixo de 1..3 bytes de cabeçalho incompleto fica de fora.
-  static int _completePrefixLength(List<int> b) {
-    final n = b.length;
-    if (n == 0) return 0;
-    // Examina os últimos 4 bytes para achar início de sequência incompleta.
-    for (var back = 1; back <= 4 && back <= n; back++) {
-      final i = n - back;
-      final byte = b[i];
-      if ((byte & 0x80) == 0) return n; // ASCII completo no fim
-      if ((byte & 0xE0) == 0xC0) {
-        // cabeçalho de 2 bytes: faltam 1 continuação?
-        return back >= 2 ? n : i;
-      }
-      if ((byte & 0xF0) == 0xE0) {
-        return back >= 3 ? n : i;
-      }
-      if ((byte & 0xF8) == 0xF0) {
-        return back >= 4 ? n : i;
-      }
-      // byte de continuação (10xxxxxx): continua retrocedendo para o cabeçalho
-    }
-    return n;
-  }
+  Stream<String> _utf8Chunks(Stream<List<int>> bytes) =>
+      utf8ChunksIncremental(bytes);
 
   Stream<String> _sseLines(Stream<List<int>> bytes) async* {
     final buf = StringBuffer();
@@ -718,4 +680,52 @@ class _PartialToolCall {
 class _NullSocket implements Socket {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Decodificador UTF-8 INCREMENTAL e tolerante compartilhado pelos providers.
+///
+/// `dart:convert` lança `FormatException("Missing extension byte")` em modo
+/// chunked quando um chunk HTTP termina no meio de uma sequência multi-byte
+/// (os chunks TCP não respeitam fronteiras de código). Aqui acumulamos os
+/// bytes pendentes e só decodificamos o prefixo completo; a cauda truncada
+/// (servidor fechou no meio do caractere, ex.: cancelamento) é decodificada
+/// lenientemente no flush final — nunca derruba a stream inteira.
+Stream<String> utf8ChunksIncremental(Stream<List<int>> bytes) async* {
+  var pending = <int>[];
+  await for (final chunk in bytes) {
+    pending.addAll(chunk);
+    final consumed = completeUtf8PrefixLength(pending);
+    if (consumed == 0) continue;
+    final complete = pending.sublist(0, consumed);
+    pending = pending.sublist(consumed);
+    yield utf8.decode(complete, allowMalformed: true);
+  }
+  if (pending.isNotEmpty) {
+    yield utf8.decode(pending, allowMalformed: true);
+  }
+}
+
+/// Comprimento do prefixo de [b] que forma sequências UTF-8 completas;
+/// qualquer sufixo de 1..3 bytes de cabeçalho incompleto fica de fora.
+int completeUtf8PrefixLength(List<int> b) {
+  final n = b.length;
+  if (n == 0) return 0;
+  // Examina os últimos 4 bytes para achar início de sequência incompleta.
+  for (var back = 1; back <= 4 && back <= n; back++) {
+    final i = n - back;
+    final byte = b[i];
+    if ((byte & 0x80) == 0) return n; // ASCII completo no fim
+    if ((byte & 0xE0) == 0xC0) {
+      // cabeçalho de 2 bytes: faltam 1 continuação?
+      return back >= 2 ? n : i;
+    }
+    if ((byte & 0xF0) == 0xE0) {
+      return back >= 3 ? n : i;
+    }
+    if ((byte & 0xF8) == 0xF0) {
+      return back >= 4 ? n : i;
+    }
+    // byte de continuação (10xxxxxx): continua retrocedendo para o cabeçalho
+  }
+  return n;
 }
