@@ -13,7 +13,7 @@ import 'dart:io';
 import '../../domain/errors/redaction.dart';
 import '../../domain/errors/vt_failure.dart';
 import 'openai_compatible_provider.dart'
-    show ProviderConfig, utf8ChunksIncremental;
+    show ProviderConfig, utf8ChunksIncremental, NullSocketPlaceholder;
 import 'provider_contract.dart';
 
 class AnthropicProvider implements LlmProvider {
@@ -39,7 +39,11 @@ class AnthropicProvider implements LlmProvider {
       .toList();
 
   HttpClient get _http =>
-      _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 15);
+      _client ??= HttpClient()
+        ..connectionTimeout = const Duration(seconds: 15)
+        // bytes crus: SSE UTF-8 é decodado por utf8ChunksIncremental
+        // (latin-1 default do HttpClient corromperia multi-byte).
+        ..encoding = null;
 
   Map<String, String> get _headers => {
         'content-type': 'application/json',
@@ -283,7 +287,8 @@ class AnthropicProvider implements LlmProvider {
       cancelled = true;
       try {
         final sock = await liveRes?.detachSocket().timeout(
-            const Duration(milliseconds: 200), onTimeout: () => null);
+            const Duration(milliseconds: 200),
+            onTimeout: () => NullSocketPlaceholder());
         sock?.destroy();
       } catch (_) {
         // body já em uso — encerrar a subscription também aborta a leitura

@@ -182,8 +182,12 @@ class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   HttpClient get _http {
+    // encoding=null: respostas chegam como bytes crus. O default do
+    // HttpClient (latin-1 p/ text/*) corromperia UTF-8 multi-byte em SSE;
+    // a decodificação correta é feita por utf8ChunksIncremental/_sseLines.
     return _client ??= HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+      ..connectionTimeout = const Duration(seconds: 15)
+      ..encoding = null;
   }
 
   VtFailure? _preflight() {
@@ -464,7 +468,8 @@ class OpenAiCompatibleProvider implements LlmProvider {
       // Abort REAL da conexão: o servidor percebe o fechamento do socket.
       try {
         final sock = await liveRes?.detachSocket().timeout(
-            const Duration(milliseconds: 200), onTimeout: () => _NullSocket());
+            const Duration(milliseconds: 200),
+            onTimeout: () => NullSocketPlaceholder());
         sock?.destroy();
       } catch (_) {
         // Body já em uso / stream já fechado — destroy via subscription chega
@@ -596,6 +601,8 @@ class OpenAiCompatibleProvider implements LlmProvider {
     }
 
     final toolCallAccum = <int, _PartialToolCall>{};
+    var sawFinish = false;
+    String? finishReason;
     try {
       await for (final line in _sseLines(res)) {
         if (!line.startsWith('data:')) continue;
@@ -647,20 +654,30 @@ class OpenAiCompatibleProvider implements LlmProvider {
                   argsJson: acc.args));
             }
           }
-          emit(DoneChunk(finish));
-          return;
+          // OpenAI-compat REAL: o chunk de usage chega DEPOIS do
+          // finish_reason (última linha antes de [DONE]). Continua lendo
+          // até [DONE]/fim para não perder tokens — DoneChunk é emitido no
+          // flush abaixo, exatamente uma vez.
+          sawFinish = true;
+          finishReason = finish;
+          continue;
         }
       }
-      // stream terminou sem finish_reason explícito
-      for (final acc in toolCallAccum.values) {
-        if (acc.name.isNotEmpty) {
-          emit(ToolCallStartChunk(
-              callId: acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
-              toolId: _normalizeToolId(acc.name, sentToolNames),
-              argsJson: acc.args));
+      // stream chegou em [DONE] ou fim de conexão: emite os pendências
+      // (tool_calls acumulados e DoneChunk) caso o finish_reason tenha sido
+      // visto mas a leitura continuou para capturar usage.
+      if (!sawFinish) {
+        for (final acc in toolCallAccum.values) {
+          if (acc.name.isNotEmpty) {
+            emit(ToolCallStartChunk(
+                callId: acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
+                toolId: _normalizeToolId(acc.name, sentToolNames),
+                argsJson: acc.args));
+          }
         }
       }
-      emit(const DoneChunk('stop'));
+      if (sawFinish) emit(DoneChunk(finishReason!));
+      else emit(const DoneChunk('stop'));
     } on SocketException catch (e) {
       // erro de stream é erro real
       throw VtFailure(
@@ -684,7 +701,7 @@ class _PartialToolCall {
 
 /// Placeholder para `detachSocket()` que não completou a tempo (cancelamento):
 /// `destroy()` é no-op. Evita bloquear o cancelamento esperando o socket.
-class _NullSocket implements Socket {
+class NullSocketPlaceholder implements Socket {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
