@@ -1,0 +1,26 @@
+name: techvt
+description: >-
+  techVT — IDE pessoal desktop-first, local-first e single-user para Flutter/Dart,
+  com agente real (techVT-Agent-01), tools reais, aprovações, checkpoints e rollback.
+  Regra inegociável: sem mock em produção.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+# Estratégia de dependências (ver README "Dependências"):
+# - O núcleo do produto (domain / application / infrastructure não-UI) usa apenas
+#   dart:io, dart:isolate, sqlite3 via FFI e pacote `crypto` — tudo implementação real.
+# - Pacotes que exigem o Flutter SDK (riverpod, go_router, file_picker,
+#   flutter_secure_storage, window_manager etc.) ficam listados em
+#   `flutter_deps_commented.yaml` e são ativados ao rodar `flutter pub get`
+#   em um ambiente com o Flutter SDK instalado. Assim o repositório compila e a
+#   suíte de testes (incluindo mock_zero_check) roda apenas com o Dart SDK.
+dependencies:
+  crypto: ^3.0.3
+  ffi: ^2.1.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^4.0.0
