@@ -13,6 +13,37 @@ import '../../domain/errors/redaction.dart';
 import '../../domain/errors/vt_failure.dart';
 import 'provider_contract.dart';
 
+/// Override explícito de capacidades vindo de Settings → Models
+/// ("capability override" da spec). Campos `null` = sem override (usa o
+/// catálogo); `false` também é um override válido (desabilitar capacidade).
+class CapabilityOverride {
+  const CapabilityOverride({
+    this.tools,
+    this.vision,
+    this.streaming,
+    this.jsonMode,
+    this.contextWindow,
+  });
+
+  final bool? tools;
+  final bool? vision;
+  final bool? streaming;
+  final bool? jsonMode;
+  final int? contextWindow;
+
+  ModelCapabilities apply(ModelCapabilities base) => ModelCapabilities(
+        tools: tools ?? base.tools,
+        vision: vision ?? base.vision,
+        streaming: streaming ?? base.streaming,
+        jsonMode: jsonMode ?? base.jsonMode,
+        longContext: contextWindow != null && contextWindow! >= 100000
+            ? true
+            : base.longContext,
+        fast: base.fast,
+        cheap: base.cheap,
+      );
+}
+
 class ProviderConfig {
   const ProviderConfig({
     required this.id,
@@ -22,6 +53,7 @@ class ProviderConfig {
     this.headers = const {},
     this.timeout = const Duration(seconds: 60),
     this.modelIds = const [],
+    this.capabilityOverrides = const {},
   });
 
   final String id;
@@ -32,8 +64,20 @@ class ProviderConfig {
   final Duration timeout;
   final List<String> modelIds;
 
-  bool get isLocal =>
-      baseUrl.contains('localhost') || baseUrl.contains('127.0.0.1');
+  /// Overrides por modelo (ex.: confirmar via teste real que um modelo local
+  /// suporta tools). Sem override, capacidades desconhecidas NUNCA são
+  /// presumidas.
+  final Map<String, CapabilityOverride> capabilityOverrides;
+
+  /// Servidor local (ollama, lmstudio, testes de integração com loopback real):
+  /// não exige API key. Detecta pelo host do URI, não por substring solta.
+  bool get isLocal {
+    final host = Uri.tryParse(baseUrl)?.host.toLowerCase() ?? '';
+    return host == 'localhost' ||
+        host == '127.0.0.1' ||
+        host == '::1' ||
+        host == '0.0.0.0';
+  }
 }
 
 class OpenAiCompatibleProvider implements LlmProvider {
@@ -54,7 +98,65 @@ class OpenAiCompatibleProvider implements LlmProvider {
   List<ModelInfo> get models => kKnownModels
       .where((m) => m.providerId == config.id)
       .where((m) => config.modelIds.isEmpty || config.modelIds.contains(m.id))
+      .map(_applyOverride)
       .toList();
+
+  /// Aplica capability override do usuário (Settings → Models) a um ModelInfo.
+  ModelInfo _applyOverride(ModelInfo m) {
+    final ov = config.capabilityOverrides[m.id];
+    if (ov == null) return m;
+    return ModelInfo(
+      id: m.id,
+      providerId: m.providerId,
+      displayName: m.displayName,
+      contextWindow: ov.contextWindow ?? m.contextWindow,
+      capabilities: ov.apply(m.capabilities),
+      pricing: m.pricing,
+      source: m.source,
+      enabled: true, // override explícito conta como confirmação do usuário
+    );
+  }
+
+  /// Resolução REAL de capacidades para o modelo pedido:
+  /// 1. catálogo conhecido por (providerId, modelId) + overrides;
+  /// 2. ids locais derivados de catálogo (ex.: `llama3.1:8b-instruct-q5`);
+  /// 3. modelo declarado em `modelIds` mas sem metadata → capacidades
+  ///    conservadoras (streaming apenas), NUNCA presume tools/vision;
+  /// 4. completamente desconhecido → null (o chamador decide; tools são
+  ///    bloqueadas por padrão seguro).
+  ModelInfo? _resolveModel(String modelId) {
+    final direct = kKnownModels
+        .where((m) => m.providerId == id && m.id == modelId)
+        .firstOrNull;
+    if (direct != null) return _applyOverride(direct);
+    final base = kKnownModels
+        .where((m) =>
+            m.providerId == id &&
+            m.source == ModelSource.local &&
+            modelId.startsWith('${m.id}-'))
+        .firstOrNull;
+    if (base != null) {
+      return ModelInfo(
+        id: modelId,
+        providerId: id,
+        displayName: modelId,
+        contextWindow: base.contextWindow,
+        capabilities: const ModelCapabilities(streaming: true),
+        source: ModelSource.local,
+      );
+    }
+    if (config.modelIds.contains(modelId)) {
+      return ModelInfo(
+        id: modelId,
+        providerId: id,
+        displayName: modelId,
+        contextWindow: 4096,
+        capabilities: const ModelCapabilities(streaming: true),
+        source: config.isLocal ? ModelSource.local : ModelSource.remote,
+      );
+    }
+    return null;
+  }
 
   HttpClient get _http {
     return _client ??= HttpClient()
@@ -246,18 +348,80 @@ class OpenAiCompatibleProvider implements LlmProvider {
     required List<ChatRequestMessage> messages,
     required ChatRequestOptions options,
     required List<Map<String, Object?>> toolSchemas,
-  }) async* {
-    final pre = _preflight();
-    if (pre != null) {
-      yield ErrorChunk(pre);
-      return;
+    void Function(StreamHandle handle)? onHandle,
+  }) {
+    late final StreamController<StreamChunk> out;
+    var cancelled = false;
+    HttpClientResponse? liveRes;
+
+    Future<void> doCancel() async {
+      cancelled = true;
+      // Abort REAL da conexão: o servidor percebe o fechamento do socket.
+      final sock = await liveRes?.detachSocket();
+      sock?.destroy();
+      out.add(const DoneChunk('cancelled'));
+      await out.close();
     }
-    final model = kKnownModels
-        .where((m) => m.id == modelId && m.providerId == id)
-        .firstOrNull;
-    if (toolSchemas.isNotEmpty && model != null && !model.capabilities.tools) {
-      yield ErrorChunk(VtFailure.modelDoesNotSupportTools(modelId));
-      return;
+
+    out = StreamController<StreamChunk>();
+    out.onListen = () async {
+      try {
+        await _pump(modelId, messages, options, toolSchemas, (c) {
+          if (!cancelled) out.add(c);
+        }, (r) => liveRes = r);
+      } on VtFailure catch (f) {
+        if (!cancelled) out.add(ErrorChunk(f));
+      } catch (e) {
+        if (!cancelled) {
+          out.add(ErrorChunk(
+              VtFailure(code: VtErrorCode.internalError, message: '$e')));
+        }
+      } finally {
+        if (!out.isClosed) await out.close();
+      }
+    };
+    out.onCancel = doCancel;
+    if (onHandle != null) {
+      onHandle(StreamHandle(doCancel));
+    }
+    return out.stream;
+  }
+
+  /// Executa a requisição SSE real e emite chunks via [emit]. Lança [VtFailure]
+  /// tipada para erros (nunca fabrica conteúdo).
+  /// Normaliza o nome de tool vindo do provedor para um id estável do registry.
+  /// Provedores OpenAI-compatíveis não aceitam `.` em nomes de função, então
+  /// modelos locais/remotos frequentemente devolvem `fs_read_text` quando a
+  /// schema foi enviada como `fs.read_text`. Match exato tem prioridade;
+  /// fallback por underscore só vale contra os nomes REALMENTE enviados no
+  /// request — nunca inventa ids.
+  String _normalizeToolId(String rawName, Set<String> sentNames) {
+    if (sentNames.contains(rawName)) return rawName;
+    final underscored = rawName.replaceAll('_', '.');
+    if (sentNames.contains(underscored)) return underscored;
+    for (final n in sentNames) {
+      if (n.replaceAll('.', '_') == rawName) return n;
+    }
+    return rawName;
+  }
+
+  Future<void> _pump(
+    String modelId,
+    List<ChatRequestMessage> messages,
+    ChatRequestOptions options,
+    List<Map<String, Object?>> toolSchemas,
+    void Function(StreamChunk) emit,
+    void Function(HttpClientResponse) onResponse,
+  ) async {
+    final sentToolNames = {
+      for (final t in toolSchemas)
+        if (t['name'] is String) t['name'] as String,
+    };
+    final pre = _preflight();
+    if (pre != null) throw pre;
+    final model = _resolveModel(modelId);
+    if (toolSchemas.isNotEmpty && (model == null || !model.capabilities.tools)) {
+      throw VtFailure.modelDoesNotSupportTools(modelId);
     }
     final supportsStreaming = model?.capabilities.streaming ?? true;
     final reqBody = <String, Object?>{
@@ -279,10 +443,9 @@ class OpenAiCompatibleProvider implements LlmProvider {
       if (supportsStreaming) 'stream_options': {'include_usage': true},
     };
 
-    HttpClientRequest req;
     HttpClientResponse res;
     try {
-      req =
+      final req =
           await _http.postUrl(_uri('chat/completions')).timeout(config.timeout);
       for (final h in _authHeaders.entries) {
         req.headers.set(h.key, h.value);
@@ -290,16 +453,35 @@ class OpenAiCompatibleProvider implements LlmProvider {
       req.write(jsonEncode(reqBody));
       res = await req.close().timeout(config.timeout);
     } on SocketException catch (e) {
-      yield ErrorChunk(
-          VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}'));
-      return;
+      throw VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}');
     } on TimeoutException {
-      yield ErrorChunk(VtFailure.timeout(config.timeout));
-      return;
+      throw VtFailure.timeout(config.timeout);
     }
+    onResponse(res);
     if (res.statusCode != 200) {
       final body = await res.transform(utf8.decoder).join();
-      yield ErrorChunk(_failureForStatus(res.statusCode, body));
+      throw _failureForStatus(res.statusCode, body);
+    }
+    if (!supportsStreaming) {
+      // Resposta única REAL (sem streaming): um Delta + Done.
+      final body = await res.transform(utf8.decoder).join();
+      final decoded = (jsonDecode(body) as Map).cast<String, Object?>();
+      final usage = (decoded['usage'] as Map?)?.cast<String, Object?>();
+      if (usage != null) {
+        emit(UsageChunk(
+          promptTokens: (usage['prompt_tokens'] as num?)?.toInt() ?? 0,
+          completionTokens: (usage['completion_tokens'] as num?)?.toInt() ?? 0,
+        ));
+      }
+      final choices = decoded['choices'] as List? ?? const [];
+      if (choices.isNotEmpty) {
+        final c0 = (choices.first as Map).cast<String, Object?>();
+        final content = ((c0['message'] as Map?)?['content'] as String?) ?? '';
+        if (content.isNotEmpty) emit(DeltaChunk(content));
+        emit(DoneChunk(c0['finish_reason'] as String? ?? 'stop'));
+      } else {
+        emit(const DoneChunk('stop'));
+      }
       return;
     }
 
@@ -318,18 +500,18 @@ class OpenAiCompatibleProvider implements LlmProvider {
         }
         final usage = chunk['usage'];
         if (usage is Map) {
-          yield UsageChunk(
+          emit(UsageChunk(
             promptTokens: (usage['prompt_tokens'] as num?)?.toInt() ?? 0,
             completionTokens:
                 (usage['completion_tokens'] as num?)?.toInt() ?? 0,
-          );
+          ));
         }
         final choices = chunk['choices'] as List?;
         if (choices == null || choices.isEmpty) continue;
         final c0 = (choices.first as Map).cast<String, Object?>();
         final delta = (c0['delta'] as Map?)?.cast<String, Object?>();
         final content = delta?['content'] as String?;
-        if (content != null && content.isNotEmpty) yield DeltaChunk(content);
+        if (content != null && content.isNotEmpty) emit(DeltaChunk(content));
         final tcs = delta?['tool_calls'] as List?;
         if (tcs != null) {
           for (final tc in tcs) {
@@ -349,33 +531,33 @@ class OpenAiCompatibleProvider implements LlmProvider {
         if (finish != null) {
           for (final acc in toolCallAccum.values) {
             if (acc.name.isNotEmpty) {
-              yield ToolCallStartChunk(
+              emit(ToolCallStartChunk(
                   callId:
                       acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
-                  toolId: acc.name,
-                  argsJson: acc.args);
+                  toolId: _normalizeToolId(acc.name, sentToolNames),
+                  argsJson: acc.args));
             }
           }
-          yield DoneChunk(finish);
+          emit(DoneChunk(finish));
           return;
         }
       }
       // stream terminou sem finish_reason explícito
       for (final acc in toolCallAccum.values) {
         if (acc.name.isNotEmpty) {
-          yield ToolCallStartChunk(
+          emit(ToolCallStartChunk(
               callId: acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
-              toolId: acc.name,
-              argsJson: acc.args);
+              toolId: _normalizeToolId(acc.name, sentToolNames),
+              argsJson: acc.args));
         }
       }
-      yield const DoneChunk('stop');
+      emit(const DoneChunk('stop'));
     } on SocketException catch (e) {
       // erro de stream é erro real
-      yield ErrorChunk(VtFailure(
+      throw VtFailure(
           code: VtErrorCode.networkUnavailable,
           message: 'Conexão de streaming interrompida: ${e.message}',
-          retryable: true));
+          retryable: true);
     }
   }
 

@@ -236,6 +236,26 @@ class ErrorChunk extends StreamChunk {
   final VtFailure failure;
 }
 
+/// Handle de uma requisição de streaming em andamento. `stop()` CANCELA a
+/// requisição HTTP real (aborta a conexão) — não é "parar de ouvir": o
+/// servidor recebe o cancelamento e a mensagem parcial preservada é a que
+/// realmente chegou antes do abort.
+class StreamHandle {
+  StreamHandle(this._cancel);
+
+  /// Handle sem ação de cancelamento pendente (ex.: stream já finalizado).
+  factory StreamHandle.noop() => StreamHandle(() async {});
+  final Future<void> Function() _cancel;
+  bool _cancelled = false;
+  bool get isCancelled => _cancelled;
+
+  Future<void> stop() async {
+    if (_cancelled) return;
+    _cancelled = true;
+    await _cancel();
+  }
+}
+
 class ChatRequestMessage {
   const ChatRequestMessage({required this.role, required this.content});
   final String role; // system|user|assistant|tool
@@ -289,7 +309,30 @@ abstract class LlmProvider {
     required List<ChatRequestMessage> messages,
     required ChatRequestOptions options,
     required List<Map<String, Object?>> toolSchemas,
+    void Function(StreamHandle handle)? onHandle,
   });
+}
+
+/// Uso de tokens/custo medidos REALMENTE numa interação com o provider.
+class TokenUsage {
+  const TokenUsage({
+    this.promptTokens = 0,
+    this.completionTokens = 0,
+    this.cachedPromptTokens = 0,
+  });
+
+  final int promptTokens;
+  final int completionTokens;
+  final int cachedPromptTokens;
+
+  int get total => promptTokens + completionTokens;
+
+  TokenUsage merge(UsageChunk c) => TokenUsage(
+        promptTokens: c.promptTokens > 0 ? c.promptTokens : promptTokens,
+        completionTokens:
+            c.completionTokens > 0 ? c.completionTokens : completionTokens,
+        cachedPromptTokens: cachedPromptTokens,
+      );
 }
 
 class ToolCompletionOutcome {
