@@ -51,8 +51,6 @@ typedef _ErrMsgC = Pointer<Utf8> Function(Pointer<Void>);
 typedef _ErrMsgDart = Pointer<Utf8> Function(Pointer<Void>);
 typedef _ChangesC = Int32 Function(Pointer<Void>);
 typedef _ChangesDart = int Function(Pointer<Void>);
-typedef _RowCb = Int32 Function(
-    Pointer<Void>, Int32, Pointer<Pointer<Utf8>>, Pointer<Pointer<Utf8>>);
 
 const _sqliteOk = 0;
 const _sqliteRow = 100;
