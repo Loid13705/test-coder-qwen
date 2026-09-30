@@ -21,7 +21,13 @@ Future<({HttpServer server, List<String> requests})> _startServer(
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   final requests = <String>[];
   server.listen((req) async {
-    final body = await utf8.decoder.bind(req).join();
+    // Decodificação leniente: o corpo contém acentos UTF-8 e os chunks TCP
+    // podem partir sequências multi-byte ao meio — allowMalformed no join
+    // final é a forma correta (a armadilha de chunked só vale p/ streaming).
+    final body = await req
+        .map<List<int>>((c) => c)
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join();
     requests.add(body);
     try {
       await handler(req);

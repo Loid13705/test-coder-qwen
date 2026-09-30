@@ -118,7 +118,13 @@ class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   /// Resolução REAL de capacidades para o modelo pedido:
-  /// 1. catálogo conhecido por (providerId, modelId) + overrides;
+  /// 1. catálogo conhecido por id; quando o MESMO id existe em outro
+  ///    provedor do catálogo (ex.: `gpt-4o-mini` num endpoint custom/
+  ///    OpenAI-compatível), as capacidades declaradas publicamente daquele
+  ///    provedor são um floor — mas NUNCA sem confirmação: só valem se o
+  ///    modelo estiver declarado em `modelIds` (confirmação explícita do
+  ///    usuário) ou se houver capability override. Caso contrário entra
+  ///    conservador (streaming apenas);
   /// 2. ids locais derivados de catálogo (ex.: `llama3.1:8b-instruct-q5`);
   /// 3. modelo declarado em `modelIds` mas sem metadata → capacidades
   ///    conservadoras (streaming apenas), NUNCA presume tools/vision;
@@ -129,6 +135,23 @@ class OpenAiCompatibleProvider implements LlmProvider {
         .where((m) => m.providerId == id && m.id == modelId)
         .firstOrNull;
     if (direct != null) return _applyOverride(direct);
+    // Mesmo id de catálogo sob outro provedor (custom/deepseek/ollama
+    // apontando p/ endpoint OpenAI-compatível): usa as capacidades como
+    // floor SOMENTE com confirmação do usuário (modelIds ou override).
+    final cross = kKnownModels.where((m) => m.id == modelId).firstOrNull;
+    if (cross != null) {
+      final confirmed = config.modelIds.contains(modelId) ||
+          config.capabilityOverrides.containsKey(modelId);
+      return _applyOverride(ModelInfo(
+        id: modelId,
+        providerId: id,
+        displayName: cross.displayName,
+        contextWindow: cross.contextWindow,
+        capabilities: confirmed ? cross.capabilities : const ModelCapabilities(streaming: true),
+        pricing: cross.pricing,
+        source: config.isLocal ? ModelSource.local : ModelSource.remote,
+      ));
+    }
     final base = kKnownModels
         .where((m) =>
             m.providerId == id &&
@@ -208,12 +231,87 @@ class OpenAiCompatibleProvider implements LlmProvider {
   /// no meio de um multi-byte (cancelamento/truncamento) — nunca deixar o
   /// `allowMalformed: false` padrão derrubar a stream inteira.
   Future<String> _decodeUtf8Lenient(Stream<List<int>> bytes) async {
-    try {
-      return await bytes.transform(const Utf8Decoder(allowMalformed: true)).join();
-    } on SocketException {
-      // conexão abortada no meio do corpo — real em cancelamento
-      rethrow;
+    final sb = StringBuffer();
+    await for (final part in _utf8Chunks(bytes)) {
+      sb.write(part);
     }
+    return sb.toString();
+  }
+
+  /// Fonte de linhas SSE com decodificação UTF-8 INCREMENTAL e tolerante.
+  ///
+  /// `dart:convert` tem duas armadilhas reais aqui:
+  /// 1. `Utf8Decoder(allowMalformed: true)` só é leniente em `convert(flush)`
+  ///    final — em modo chunked (`addSlice`) ele ainda lança
+  ///    `FormatException("Missing extension byte")` quando um chunk termina
+  ///    no meio de uma sequência multi-byte (acontece em streams HTTP
+  ///    reais, pois os chunks TCP não respeitam fronteiras de código).
+  /// 2. `LineSplitter` faz o mesmo buffer interno sem controle.
+  /// Por isso o parsing é manual: acumulamos bytes pendentes e só decodificamos
+  /// o prefixo completo; linha parcial fica no buffer até o próximo chunk.
+  Stream<String> _utf8Chunks(Stream<List<int>> bytes) async* {
+    var pending = <int>[];
+    await for (final chunk in bytes) {
+      pending.addAll(chunk);
+      final consumed = _completePrefixLength(pending);
+      if (consumed == 0) continue;
+      final complete = pending.sublist(0, consumed);
+      pending = pending.sublist(consumed);
+      yield utf8.decode(complete, allowMalformed: true);
+    }
+    if (pending.isNotEmpty) {
+      // cauda truncada pelo servidor/cancelamento — leniente no flush final
+      yield utf8.decode(pending, allowMalformed: true);
+    }
+  }
+
+  /// Comprimento do prefixo de [b] que forma sequências UTF-8 completas;
+  /// qualquer sufixo de 1..3 bytes de cabeçalho incompleto fica de fora.
+  static int _completePrefixLength(List<int> b) {
+    final n = b.length;
+    if (n == 0) return 0;
+    // Examina os últimos 4 bytes para achar início de sequência incompleta.
+    for (var back = 1; back <= 4 && back <= n; back++) {
+      final i = n - back;
+      final byte = b[i];
+      if ((byte & 0x80) == 0) return n; // ASCII completo no fim
+      if ((byte & 0xE0) == 0xC0) {
+        // cabeçalho de 2 bytes: faltam 1 continuação?
+        return back >= 2 ? n : i;
+      }
+      if ((byte & 0xF0) == 0xE0) {
+        return back >= 3 ? n : i;
+      }
+      if ((byte & 0xF8) == 0xF0) {
+        return back >= 4 ? n : i;
+      }
+      // byte de continuação (10xxxxxx): continua retrocedendo para o cabeçalho
+    }
+    return n;
+  }
+
+  Stream<String> _sseLines(Stream<List<int>> bytes) async* {
+    final buf = StringBuffer();
+    await for (final part in _utf8Chunks(bytes)) {
+      buf.write(part);
+      final s = buf.toString();
+      var start = 0;
+      while (true) {
+        final nl = s.indexOf('\n', start);
+        if (nl < 0) break;
+        var line = s.substring(start, nl);
+        if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
+        yield line;
+        start = nl + 1;
+      }
+      if (start > 0) {
+        final rest = s.substring(start);
+        buf.clear();
+        buf.write(rest);
+      }
+    }
+    final tail = buf.toString();
+    if (tail.isNotEmpty) yield tail;
   }
 
   VtFailure _failureForStatus(int status, String body) {
@@ -290,9 +388,25 @@ class OpenAiCompatibleProvider implements LlmProvider {
           .whereType<String>()
           .toSet();
       // Cruza ids reais da conta com catálogo de capacidades conhecido.
+      // Match por id (endpoint OpenAI-compatível pode reportar modelos de
+      // outro provedor, ex.: custom → gpt-4o-mini); o ModelInfo é reancorado
+      // no provedor real para _resolveModel encontrar a resolução direta.
       return [
         for (final known in kKnownModels)
-          if (known.providerId == id && list.contains(known.id)) known,
+          if (list.contains(known.id))
+            known.providerId == id
+                ? known
+                : ModelInfo(
+                    id: known.id,
+                    providerId: id,
+                    displayName: known.displayName,
+                    contextWindow: known.contextWindow,
+                    capabilities: known.capabilities,
+                    pricing: known.pricing,
+                    source: config.isLocal
+                        ? ModelSource.local
+                        : ModelSource.remote,
+                  ),
         // Ids reais sem metadata conhecida entram desabilitados para tools —
         // capacidades desconhecidas NUNCA são presumidas.
         for (final unknownId
@@ -514,8 +628,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
 
     final toolCallAccum = <int, _PartialToolCall>{};
     try {
-      await for (final line
-          in res.transform(const Utf8Decoder(allowMalformed: true)).transform(const LineSplitter())) {
+      await for (final line in _sseLines(res)) {
         if (!line.startsWith('data:')) continue;
         final payload = line.substring(5).trim();
         if (payload == '[DONE]') break;
