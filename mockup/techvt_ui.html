@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>techVT — Mockup UI v1 (avaliação de design)</title>
+<style>
+  /* ============================================================
+     techVT IDE — Mockup estático para avaliação de layout/design.
+     NÃO é produto; é wireframe de alta fidelidade da spec:
+     activity bar 48px | sidebar 280 | editor | AI panel 400
+     bottom panel 220 | status bar 24 | command palette
+     ============================================================ */
+  :root {
+    --bg0: #0b0e14;      /* janela */
+    --bg1: #11151f;      /* painéis */
+    --bg2: #171c29;      /* superfícies elevadas */
+    --bg3: #1f2635;      /* hover / seleção */
+    --line: #2a3245;
+    --txt0: #e6ebf4;
+    --txt1: #9aa5b8;
+    --txt2: #5d6679;
+    --accent: #4f8cff;   /* azul techVT */
+    --accent2: #8b5cf6;  /* roxo agente */
+    --ok: #3fbf7f;
+    --warn: #e0a63f;
+    --err: #ef5350;
+    --risk-low: #3fbf7f;
+    --risk-med: #e0a63f;
+    --risk-high: #ef5350;
+    --mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
+    --ui: "Inter", "Segoe UI", system-ui, sans-serif;
+    --radius: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--ui);
+    background: var(--bg0);
+    color: var(--txt0);
+    font-size: 13px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- título / janela ---------- */
+  .titlebar {
+    height: 34px; display: flex; align-items: center; gap: 12px;
+    background: var(--bg1); border-bottom: 1px solid var(--line);
+    padding: 0 12px; user-select: none; flex-shrink: 0;
+  }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: .3px; }
+  .logo-badge {
+    width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    font-size: 11px; font-weight: 800; color: #fff;
+  }
+  .menu { display: flex; gap: 2px; }
+  .menu span { padding: 4px 9px; border-radius: 5px; color: var(--txt1); cursor: default; }
+  .menu span:hover { background: var(--bg3); color: var(--txt0); }
+  .titlebar .fname { margin-left: auto; color: var(--txt1); font-size: 12px; }
+  .winbtns { display: flex; gap: 8px; margin-left: 16px; }
+  .winbtns i { width: 12px; height: 12px; border-radius: 50%; display: block; opacity: .9; }
+  .w-min{background:#5d6679}.w-max{background:#3fbf7f}.w-close{background:#ef5350}
+
+  /* ---------- corpo ---------- */
+  .shell { flex: 1; display: flex; min-height: 0; }
+
+  /* activity bar */
+  .activity {
+    width: 48px; background: var(--bg1); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 4px; flex-shrink: 0;
+  }
+  .act {
+    width: 38px; height: 38px; display: grid; place-items: center; border-radius: 8px;
+    color: var(--txt2); cursor: pointer; position: relative; font-size: 17px;
+  }
+  .act:hover { color: var(--txt0); background: var(--bg2); }
+  .act.active { color: var(--accent); background: var(--bg2); }
+  .act.active::before {
+    content:""; position:absolute; left:-1px; top:8px; bottom:8px; width:2px;
+    background: var(--accent); border-radius: 2px;
+  }
+  .act .dot { position:absolute; top:6px; right:6px; width:7px; height:7px; border-radius:50%; background: var(--warn); border: 2px solid var(--bg1); }
+  .activity .spacer { flex: 1; }
+
+  /* sidebar esquerda */
+  .sidebar {
+    width: 280px; min-width: 200px; max-width: 520px; background: var(--bg1);
+    border-right: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .panel-head {
+    height: 35px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--txt1); text-transform: uppercase;
+  }
+  .panel-head .icons { margin-left: auto; display: flex; gap: 10px; font-size: 13px; color: var(--txt2); }
+  .panel-head .icons span:hover { color: var(--txt0); cursor: pointer; }
+  .searchbox { margin: 0 10px 8px; }
+  .searchbox input {
+    width: 100%; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius);
+    color: var(--txt0); padding: 6px 9px; font-size: 12px; outline: none;
+  }
+  .searchbox input:focus { border-color: var(--accent); }
+  .tree { flex: 1; overflow-y: auto; padding: 0 6px 10px; font-size: 12.5px; }
+  .node { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 5px; color: var(--txt1); cursor: pointer; white-space: nowrap; }
+  .node:hover { background: var(--bg2); color: var(--txt0); }
+  .node.sel { background: var(--bg3); color: var(--txt0); }
+  .node .tw { width: 12px; color: var(--txt2); font-size: 10px; }
+  .node .fi { font-size: 13px; }
+  .node .dirty { margin-left: auto; color: var(--warn); font-size: 10px; }
+  .indent1 { padding-left: 22px; } .indent2 { padding-left: 38px; } .indent3 { padding-left: 54px; }
+  .file-ext-dart { color: #42a5f5; } .file-ext-yaml { color: #f06292; } .file-ext-md { color: #9aa5b8; }
+
+  /* área central */
+  .center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .mainrow { flex: 1; display: flex; min-height: 0; }
+  .editor-area { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg0); }
+
+  /* tabs */
+  .tabbar { height: 36px; display: flex; background: var(--bg1); border-bottom: 1px solid var(--line); flex-shrink: 0; align-items: stretch; }
+  .tab {
+    display: flex; align-items: center; gap: 7px; padding: 0 12px; font-size: 12.5px;
+    color: var(--txt1); background: var(--bg1); border-right: 1px solid var(--line); cursor: pointer;
+    max-width: 220px; white-space: nowrap;
+  }
+  .tab:hover { color: var(--txt0); }
+  .tab.active { background: var(--bg0); color: var(--txt0); border-top: 2px solid var(--accent); padding-top: 1px; }
+  .tab .close { font-size: 11px; color: var(--txt2); }
+  .tab .close:hover { color: var(--err); }
+  .tab .tdot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--warn); }
+  .tabbar .more { margin-left: auto; display:flex; align-items:center; padding: 0 12px; color: var(--txt2); }
+
+  .breadcrumbs { height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 14px; font-size: 11.5px; color: var(--txt2); flex-shrink: 0; }
+  .breadcrumbs b { color: var(--txt1); font-weight: 500; }
+
+  /* código */
+  .code-wrap { flex: 1; display: flex; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; }
+  .gutter { padding: 8px 10px 8px 0; text-align: right; color: #3d4657; user-select: none; flex-shrink: 0; }
+  .gutter .gcur { color: var(--txt1); background: var(--bg2); display:block; margin: 0 -6px; padding: 0 6px; border-left: 2px solid var(--accent); }
+  .code { padding: 8px 16px; flex: 1; min-width: max-content; }
+  .code .ln { display: block; white-space: pre; padding: 0 2px; border-radius: 3px; }
+  .code .ln.hl { background: rgba(79,140,255,.07); }
+  .add { background: rgba(63,191,127,.14); display:block; border-left: 2px solid var(--ok); margin: 0 -8px; padding: 0 8px; }
+  .cm { color: #546178; font-style: italic; }
+  .kw { color: #c792ea; } .ty { color: #ffcb6b; } .st { color: #9ccc7f; } .fn { color: #61b0ff; } .nm { color: #f78c6c; } .an { color: #4dd0e1; }
+  .ghost { color: #4a5568; font-style: italic; background: rgba(139,92,246,.08); border-radius: 3px; padding: 0 2px; }
+  .ghost-hint { font-size: 10px; color: var(--accent2); border: 1px solid var(--accent2); border-radius: 3px; padding: 0 4px; margin-left: 6px; }
+
+  /* minimap fake decorativo */
+  .minimap { width: 70px; flex-shrink: 0; opacity: .5; padding-top: 8px; }
+  .minimap i { display: block; height: 3px; margin: 2px 8px; background: #2c3547; border-radius: 2px; }
+  .minimap i.b1 { width: 60%; } .minimap i.b2 { width: 80%; } .minimap i.b3 { width: 45%; } .minimap i.b4 { width: 70%; background: rgba(63,191,127,.5);}
+
+  /* painel inferior */
+  .bottom { height: 220px; min-height: 120px; background: var(--bg1); border-top: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; }
+  .btabs { display: flex; height: 33px; align-items: stretch; border-bottom: 1px solid var(--line); padding: 0 8px; gap: 2px; }
+  .btab { display: flex; align-items: center; gap: 6px; padding: 0 12px; font-size: 11.5px; color: var(--txt1); cursor: pointer; border-bottom: 2px solid transparent; }
+  .btab:hover { color: var(--txt0); }
+  .btab.active { color: var(--txt0); border-bottom-color: var(--accent); }
+  .badge { background: var(--bg3); border-radius: 8px; padding: 0 6px; font-size: 10px; color: var(--txt1); }
+  .badge.warn { background: rgba(224,166,63,.18); color: var(--warn); }
+  .badge.err { background: rgba(239,83,80,.18); color: var(--err); }
+  .bcontent { flex: 1; overflow-y: auto; font-family: var(--mono); font-size: 12px; padding: 8px 12px; }
+  .tline { display: flex; gap: 8px; padding: 1px 0; }
+  .tline .p { color: var(--ok); } .tline .dir { color: #61b0ff; } .tline .cmd { color: var(--txt0); }
+  .tline .out { color: var(--txt1); white-space: pre-wrap; }
+  .prompt { color: var(--accent2); }
+  .cursor-blink { display:inline-block; width: 7px; height: 14px; background: var(--txt0); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ============ painel AI direito ============ */
+  .ai-panel { width: 400px; min-width: 340px; max-width: 640px; background: var(--bg1); border-left: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; }
+  .ai-head { height: 35px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+  .agent-chip { display: flex; align-items: center; gap: 6px; background: linear-gradient(135deg, rgba(79,140,255,.15), rgba(139,92,246,.15)); border: 1px solid rgba(139,92,246,.4); border-radius: 12px; padding: 2px 9px; font-size: 11px; font-weight: 600; color: #b7a5ff; }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(63,191,127,.6); animation: pulse 2s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 6px rgba(63,191,127,0);} }
+  .ai-head .hicons { margin-left: auto; display: flex; gap: 12px; color: var(--txt2); font-size: 14px; }
+  .ai-head .hicons span:hover { color: var(--txt0); cursor: pointer; }
+
+  .conv-strip { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .conv { font-size: 11px; padding: 3px 10px; border-radius: 12px; background: var(--bg2); color: var(--txt1); white-space: nowrap; cursor: pointer; border: 1px solid transparent; }
+  .conv.active { border-color: var(--accent); color: var(--txt0); background: rgba(79,140,255,.1); }
+  .conv.pin::after { content: " 📌"; font-size: 9px; }
+
+  .chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+
+  .msg { display: flex; flex-direction: column; gap: 6px; }
+  .msg .meta { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--txt2); }
+  .msg.user .meta { justify-content: flex-end; }
+  .role-tag { font-weight: 700; color: var(--txt1); }
+  .model-tag { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+  .bubble-user { background: rgba(79,140,255,.12); border: 1px solid rgba(79,140,255,.3); border-radius: 10px 10px 2px 10px; padding: 9px 12px; color: var(--txt0); align-self: flex-end; max-width: 92%; }
+  .msg-body { color: var(--txt0); line-height: 1.55; }
+  .msg-body p + p { margin-top: 6px; }
+
+  /* plano do agente */
+  .plan { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+  .plan h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--accent2); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .step { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; font-size: 12px; color: var(--txt1); }
+  .st-ok { color: var(--ok); } .st-run { color: var(--accent); } .st-pend { color: var(--txt2); } .st-wait { color: var(--warn); }
+  .step .ss { font-size: 11px; width: 14px; flex-shrink: 0; }
+  .step em { color: var(--txt2); font-style: normal; font-size: 10.5px; margin-left: auto; white-space: nowrap; }
+
+  /* tool call card */
+  .toolcard { background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .tc-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: 11.5px; }
+  .tc-head .tid { font-family: var(--mono); color: #61b0ff; }
+  .tc-status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 10.5px; }
+  .stat-ok { color: var(--ok); } .stat-run { color: var(--accent); }
+  .tc-io { border-top: 1px solid var(--line); padding: 7px 10px; font-family: var(--mono); font-size: 11px; color: var(--txt1); background: rgba(0,0,0,.18); white-space: pre-wrap; }
+  .tc-io b { color: var(--txt2); font-weight: 600; }
+  .tc-foot { border-top: 1px solid var(--line); display: flex; gap: 10px; padding: 5px 10px; font-size: 10.5px; color: var(--txt2); }
+  .tc-foot span:hover { color: var(--txt0); cursor: pointer; }
+  .spinner { width: 10px; height: 10px; border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%; display: inline-block; animation: rot .8s linear infinite; vertical-align: -1px; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  /* approval card */
+  .approval { border: 1px solid rgba(224,166,63,.5); background: rgba(224,166,63,.06); border-radius: var(--radius); padding: 10px 12px; }
+  .approval .ap-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 12.5px; color: var(--warn); }
+  .risk-pill { font-size: 9.5px; font-weight: 700; border-radius: 4px; padding: 1px 6px; text-transform: uppercase; letter-spacing: .5px; }
+  .risk-local_write { background: rgba(224,166,63,.2); color: var(--warn); }
+  .risk-destructive { background: rgba(239,83,80,.2); color: var(--err); }
+  .risk-read_only { background: rgba(63,191,127,.18); color: var(--ok); }
+  .approval ul { margin: 8px 0 8px 18px; font-size: 11.5px; color: var(--txt1); line-height: 1.6; }
+  .diffmini { font-family: var(--mono); font-size: 11px; background: rgba(0,0,0,.25); border-radius: 4px; padding: 6px 8px; margin: 6px 0; }
+  .diffmini .dl { color: var(--err); } .diffmini .al { color: var(--ok); }
+  .ap-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--line); background: var(--bg3); color: var(--txt0); font-size: 11.5px; padding: 5px 12px; border-radius: 5px; cursor: pointer; font-family: var(--ui); }
+  .btn:hover { filter: brightness(1.2); }
+  .btn.primary { background: var(--ok); border-color: var(--ok); color: #06281a; font-weight: 700; }
+  .btn.danger { background: transparent; border-color: var(--err); color: var(--err); }
+  .btn.ghost { background: transparent; }
+  .kbd { font-family: var(--mono); font-size: 10px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--txt1); background: var(--bg2); }
+
+  /* citations */
+  .cite { font-size: 10.5px; color: var(--accent); border: 1px solid rgba(79,140,255,.35); border-radius: 4px; padding: 0 5px; cursor: pointer; text-decoration: none; }
+  .cite:hover { background: rgba(79,140,255,.12); }
+  .cites { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* cost block */
+  .cost { display: flex; gap: 14px; font-size: 10.5px; color: var(--txt2); border-top: 1px dashed var(--line); padding-top: 6px; }
+  .cost b { color: var(--txt1); font-weight: 600; }
+
+  /* context chips */
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px 0; }
+  .chip { display: flex; align-items: center; gap: 5px; font-size: 11px; background: rgba(79,140,255,.1); border: 1px solid rgba(79,140,255,.35); color: #9dc0ff; border-radius: 12px; padding: 2px 9px; }
+  .chip .x { color: var(--txt2); cursor: pointer; }
+  .chip .tk { color: var(--txt2); font-size: 9.5px; }
+  .chip.warn { background: rgba(224,166,63,.08); border-color: rgba(224,166,63,.4); color: #ecc98a; }
+
+  /* composer */
+  .composer { border-top: 1px solid var(--line); padding: 10px 12px 8px; background: var(--bg1); }
+  .comp-selectors { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  .sel { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--txt1); background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; padding: 3px 9px; cursor: pointer; }
+  .sel:hover { border-color: var(--accent); }
+  .sel b { color: var(--txt0); font-weight: 600; }
+  .sel.mode b { color: var(--accent); } .sel.posture b { color: var(--accent2); } .sel.approval b { color: var(--warn); }
+  .comp-box { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .comp-box:focus-within { border-color: var(--accent); }
+  .comp-box textarea { width: 100%; background: transparent; border: none; outline: none; resize: none; color: var(--txt0); font-family: var(--ui); font-size: 12.5px; min-height: 44px; }
+  .comp-box textarea::placeholder { color: var(--txt2); }
+  .comp-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .comp-icons { display: flex; gap: 12px; color: var(--txt2); font-size: 14px; }
+  .comp-icons span:hover { color: var(--txt0); cursor: pointer; }
+  .tokens { margin-left: auto; font-size: 10px; color: var(--txt2); }
+  .send { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 5px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .stop { background: var(--err); color: #fff; border: none; border-radius: 6px; padding: 5px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
+
+  /* status bar */
+  .statusbar {
+    height: 24px; background: var(--bg1); border-top: 1px solid var(--line);
+    display: flex; align-items: center; gap: 0; font-size: 11px; color: var(--txt1); flex-shrink: 0; padding: 0 4px;
+  }
+  .sb { display: flex; align-items: center; gap: 5px; padding: 0 9px; height: 100%; cursor: pointer; white-space: nowrap; }
+  .sb:hover { background: var(--bg3); color: var(--txt0); }
+  .sb.branch { color: #9dc0ff; }
+  .sb.ok { color: var(--ok); } .sb.warn { color: var(--warn); } .sb.err { color: var(--err); }
+  .sb.right { margin-left: auto; }
+  .sb .sdot { width: 7px; height: 7px; border-radius: 50%; }
+  .green { background: var(--ok); } .yellow { background: var(--warn); } .red { background: var(--err); } .blue { background: var(--accent); }
+
+  /* command palette overlay */
+  .palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; justify-content: center; padding-top: 64px; z-index: 100; backdrop-filter: blur(2px); }
+  .palette-overlay.show { display: flex; }
+  .palette { width: 620px; height: fit-content; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 18px 60px rgba(0,0,0,.6); overflow: hidden; }
+  .palette input { width: 100%; background: transparent; border: none; outline: none; color: var(--txt0); font-size: 14px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .pres { max-height: 340px; overflow-y: auto; padding: 6px; }
+  .pre { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 12.5px; color: var(--txt1); cursor: pointer; }
+  .pre .pi { width: 18px; text-align: center; color: var(--txt2); }
+  .pre .cat { font-size: 10px; color: var(--txt2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 4px; }
+  .pre .pk { margin-left: auto; }
+  .pre.sel { background: rgba(79,140,255,.15); color: var(--txt0); }
+  .pfoot { border-top: 1px solid var(--line); padding: 6px 14px; font-size: 10.5px; color: var(--txt2); display: flex; gap: 16px; }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2a3245; border-radius: 6px; border: 2px solid var(--bg0); }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4560; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* annotation flags (para discussão) */
+  .anno { position: absolute; top: 40px; right: 8px; z-index: 50; background: var(--bg2); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 12px; font-size: 11px; color: var(--txt1); max-width: 260px; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  .anno b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- ================= TITLEBAR ================= -->
+<div class="titlebar">
+  <div class="logo"><span class="logo-badge">tv</span> techVT</div>
+  <div class="menu">
+    <span>Arquivo</span><span>Editar</span><span>Selecionar</span><span>Exibir</span><span>Agen<span style="color:var(--accent2)">t</span>e</span><span>Terminal</span><span>Ferramentas</span><span>Ajuda</span>
+  </div>
+  <div class="fname">meu_jogo_flame — pubspec.yaml — techVT-Agent-01 · Agent Mode</div>
+  <div class="winbtns"><i class="w-min"></i><i class="w-max"></i><i class="w-close"></i></div>
+</div>
+
+<!-- ================= SHELL ================= -->
+<div class="shell">
+
+  <!-- activity bar -->
+  <nav class="activity" title="Activity Bar — 48px, colapsável">
+    <div class="act active" title="Explorer">🗂</div>
+    <div class="act" title="Search">🔍</div>
+    <div class="act" title="Source Control">⎇<span class="dot"></span></div>
+    <div class="act" title="Run / Debug">▶</div>
+    <div class="act" title="Tools">🧰<span class="dot"></span></div>
+    <div class="act" title="Game Dev">🎮</div>
+    <div class="act" title="Browser">🌐</div>
+    <div class="act" title="Bugs">🐞</div>
+    <div class="spacer"></div>
+    <div class="act" title="Settings">⚙</div>
+  </nav>
+
+  <!-- sidebar explorer -->
+  <aside class="sidebar">
+    <div class="panel-head">MEU_JOGO_FLAME <span class="icons"><span title="Novo arquivo">＋</span><span title="Refresh">⟳</span><span title="Collapse tudo">⊟</span></span></div>
+    <div class="searchbox"><input placeholder="Filtrar arquivos…" value=""></div>
+    <div class="tree">
+      <div class="node"><span class="tw">▾</span><span class="fi">📁</span> lib</div>
+      <div class="node indent1"><span class="tw">▾</span><span class="fi">📁</span> game</div>
+      <div class="node indent2"><span class="tw">·</span><span class="fi file-ext-dart">◆</span> main.dart <span class="dirty">●</span></div>
+      <div class="node indent2 sel"><span class="tw">·</span><span class="fi file-ext-dart">◆</span> game_overlays.dart</div>
+      <div class="node indent2"><span class="tw">›</span><span class="fi">📁</span> components</div>
+      <div class="node indent1"><span class="tw">›</span><span class="fi">📁</span> screens</div>
+      <div class="node indent1"><span class="tw">›</span><span class="fi">📁</span> state</div>
+      <div class="node"><span class="tw">▾</span><span class="fi">📁</span> test</div>
+      <div class="node indent1"><span class="tw">·</span><span class="fi file-ext-dart">◆</span> game_test.dart</div>
+      <div class="node"><span class="tw">›</span><span class="fi">📁</span> assets</div>
+      <div class="node"><span class="tw">›</span><span class="fi">📁</span> sidecars</div>
+      <div class="node"><span class="tw">·</span><span class="fi file-ext-yaml">◇</span> pubspec.yaml</div>
+      <div class="node"><span class="tw">·</span><span class="fi file-ext-md">▢</span> README.md</div>
+      <div class="node"><span class="tw">·</span><span class="fi file-ext-yaml">◇</span> analysis_options.yaml</div>
+    </div>
+  </aside>
+
+  <!-- center: editor + bottom -->
+  <section class="center">
+    <div class="mainrow">
+      <div class="editor-area">
+        <!-- tab bar -->
+        <div class="tabbar">
+          <div class="tab"><span class="fi file-ext-dart">◆</span> main.dart <span class="tdot" title="não salvo"></span><span class="close">✕</span></div>
+          <div class="tab active"><span class="fi file-ext-dart">◆</span> game_overlays.dart<span class="close">✕</span></div>
+          <div class="tab"><span class="fi file-ext-yaml">◇</span> pubspec.yaml<span class="close">✕</span></div>
+          <div class="tab more" title="Tabs ocultas (overflow paginado)">⋯ 4</div>
+        </div>
+        <div class="breadcrumbs">lib › game › <b>GameOverPanel</b> › build() &nbsp;·&nbsp; Dart 3.5 &nbsp;·&nbsp; UTF-8 &nbsp;·&nbsp; LF</div>
+
+        <!-- código com diff do agente + ghost text -->
+        <div class="code-wrap">
+          <div class="gutter">
+            41<br>42<br>43<br>44<br>45<br>46<br>47<br>48<br>49<br>50<br>51<br>52<br>53<br>54<br>55<br>56<br>57<br>58
+          </div>
+          <div class="code">
+<span class="ln"><span class="kw">class</span> <span class="ty">GameOverPanel</span> <span class="kw">extends</span> <span class="ty">Positioned</span> {</span>
+<span class="ln hl">  <span class="kw">final</span> <span class="ty">VoidCallback</span> onRestart;</span>
+<span class="ln hl">  <span class="kw">final</span> <span class="ty">int</span> score;</span>
+<span class="ln add">  <span class="kw">const</span> <span class="fn">GameOverPanel</span>({<span class="kw">required</span> <span class="kw">this</span>.onRestart, <span class="kw">required</span> <span class="kw">this</span>.score, <span class="kw">super</span>.key});</span>
+<span class="ln">&nbsp;</span>
+<span class="ln">  <span class="an">@override</span></span>
+<span class="ln">  <span class="ty">Widget</span> <span class="fn">build</span>(<span class="ty">BuildContext</span> context) {</span>
+<span class="ln">    <span class="kw">return</span> <span class="ty">Container</span>(</span>
+<span class="ln">      color: <span class="ty">Colors</span>.black.withValues(alpha: <span class="nm">0.7</span>),</span>
+<span class="ln">      child: <span class="ty">Center</span>(</span>
+<span class="ln">        child: <span class="ty">Column</span>(</span>
+<span class="ln">          mainAxisSize: MainAxisSize.min,</span>
+<span class="ln hl">          children: [</span>
+<span class="ln add">            <span class="ty">Text</span>(<span class="st">'Fim de jogo!'</span>, style: <span class="ty">Theme</span>.of(context).textTheme.headlineMedium),</span>
+<span class="ln add">            <span class="ty">SizedBox</span>(height: <span class="nm">8</span>),</span>
+<span class="ln add">            <span class="ty">Text</span>(<span class="st">'Pontuação: $score'</span>),  <span class="ghost">// sugestão IA: Semantics(label: 'pontuação final')</span><span class="ghost-hint">Tab p/ aceitar · Esc descarta</span></span>
+<span class="ln">          ],</span>
+<span class="ln">        ),</span>
+<span class="ln">      ),</span>
+<span class="ln">    );</span>
+<span class="ln">  }</span>
+<span class="ln">}</span>
+          </div>
+          <div class="minimap" title="Minimap (opcional nas configs)">
+            <i class="b1"></i><i class="b2"></i><i></i><i class="b3"></i><i class="b4"></i><i class="b4"></i><i></i><i class="b2"></i><i class="b1"></i><i></i><i class="b3"></i><i class="b2"></i><i></i><i class="b1"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- bottom panel -->
+    <div class="bottom">
+      <div class="btabs">
+        <div class="btab active">TERMINAL <span class="badge">2</span></div>
+        <div class="btab">PROBLEMAS <span class="badge err">1</span></div>
+        <div class="btab">OUTPUT</div>
+        <div class="btab">TESTES <span class="badge ok" style="background:rgba(63,191,127,.18);color:var(--ok)">✓ 14</span></div>
+        <div class="btab">DEBUG</div>
+        <div class="btab">GIT</div>
+        <div class="btab">APROVAÇÕES <span class="badge warn">1 pendente</span></div>
+        <div class="btab">LOGS</div>
+        <div class="btab" style="margin-left:auto;border:none" title="Maximizar painel">▲</div>
+      </div>
+      <div class="bcontent">
+        <div class="tline"><span class="p">➜</span><span class="dir">~/projetos/meu_jogo_flame</span><span class="cmd">flutter analyze</span></div>
+        <div class="tline"><span class="out">Analyzing meu_jogo_flame...                                                    
+   info · Prefer using 'const' · lib/game/game_overlays.dart:47:12
+Exit code 0 · 1 issue (0 seconds)</span></div>
+        <div class="tline"><span class="p">➜</span><span class="dir">~/projetos/meu_jogo_flame</span><span class="cmd">dart format lib/game/ && flutter test</span></div>
+        <div class="tline"><span class="out">Formatted 2 files (0 changed) in 0.01 seconds.
+00:03 +14: All tests passed!</span></div>
+        <div class="tline"><span class="p">➜</span><span class="dir">~/projetos/meu_jogo_flame</span><span class="cmd"><span class="cursor-blink"></span></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PAINEL AI ================= -->
+  <aside class="ai-panel">
+    <div class="ai-head">
+      <span class="agent-chip"><span class="pulse"></span> techVT-Agent-01</span>
+      <span class="hicons"><span title="Nova conversa">＋</span><span title="Histórico">🕘</span><span title="Buscar no chat">🔎</span><span title="Exportar">⇪</span><span title="Fechar painel">✕</span></span>
+    </div>
+
+    <div class="conv-strip">
+      <span class="conv active pin">Hot reload do game loop</span>
+      <span class="conv">Perf: shader compilation</span>
+      <span class="conv">Migração Riverpod 2→3</span>
+      <span class="conv">+ nova</span>
+    </div>
+
+    <div class="chat">
+      <!-- user -->
+      <div class="msg user">
+        <div class="meta"><span class="model-tag">contexto: 4 chips</span><span>ontem 22:41</span><span class="role-tag">você</span></div>
+        <div class="bubble-user">Adiciona um painel de Game Over mostrando a pontuação e botão de reiniciar. Usa o padrão dos overlays existentes.</div>
+      </div>
+
+      <!-- agent response with plan -->
+      <div class="msg">
+        <div class="meta"><span class="role-tag" style="color:#b7a5ff">Agent</span><span class="model-tag">gpt-4o-mini · streaming ✓</span><span>modo: Agent</span><span>postura: Executora</span><span>aprovação: Review Each Change</span></div>
+        <div class="msg-body">
+          <p>Vou criar <code>GameOverPanel</code> seguindo o padrão de <code>PauseOverlay</code> e conectar ao ciclo de reinício do jogo. Plano:</p>
+        </div>
+        <div class="plan">
+          <h4>◈ Plano · agent.plan.create <span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;color:var(--txt2)">run #48 · step 3/5</span></h4>
+          <div class="step"><span class="ss st-ok">✓</span> Ler overlays existentes e estado do jogo <em>fs.read_text ×3</em></div>
+          <div class="step"><span class="ss st-ok">✓</span> Criar GameOverPanel com score + restart <em>editor.apply_diff</em></div>
+          <div class="step"><span class="ss st-run"><span class="spinner"></span></span> Conectar onRestart ao GameManager.reset() <em>awaiting approval</em></div>
+          <div class="step"><span class="ss st-pend">○</span> dart analyze + flutter test <em>verificação obrigatória</em></div>
+          <div class="step"><span class="ss st-pend">○</span> Checkpoint pós-execução + diff final <em>checkpoint.create</em></div>
+        </div>
+
+        <!-- tool card concluída -->
+        <div class="toolcard">
+          <div class="tc-head">
+            <span>🔧</span><span class="tid">fs.read_text</span>
+            <span class="tc-status stat-ok">✓ succeeded · 42ms</span>
+          </div>
+          <div class="tc-io"><b>in&nbsp;</b> lib/game/pause_overlay.dart
+<b>out</b> 87 linhas · 2.1 KB · sha256:9f2c…</div>
+          <div class="tc-foot"><span>expandir</span><span>copiar</span><span>ver log</span><span style="margin-left:auto">audit #a91f</span></div>
+        </div>
+
+        <!-- tool card executando -->
+        <div class="toolcard">
+          <div class="tc-head">
+            <span>🔧</span><span class="tid">editor.apply_diff</span>
+            <span class="tc-status stat-run"><span class="spinner"></span> running · pending_approval</span>
+          </div>
+          <div class="tc-io"><b>in&nbsp;</b> lib/game/game_overlays.dart · +3 −0 hunks</div>
+          <div class="tc-foot"><span>expandir</span><span>retry</span><span>rollback disponível</span><span style="margin-left:auto">audit #a922</span></div>
+        </div>
+
+        <!-- approval card -->
+        <div class="approval">
+          <div class="ap-title">⚠ Aprovação necessária <span class="risk-pill risk-local_write">local_write</span></div>
+          <ul>
+            <li><b>Ação:</b> editar <code>lib/game/game_manager.dart</code> (+2 linhas) e escrever checkpoint antes</li>
+            <li><b>Efeito colateral:</b> alteração em arquivo-fonte · reversível via rollback.run</li>
+            <li><b>Justificativa:</b> expor <code>restart()</code> público chamado pelo painel</li>
+          </ul>
+          <div class="diffmini">
+<span class="dl">-  void _resetInternal() { … }</span>
+<span class="al">+  void restart() => _resetInternal();</span>
+<span class="al">+  // usado por GameOverPanel.onRestart</span>
+          </div>
+          <div class="ap-actions">
+            <button class="btn primary">✓ Aprovar</button>
+            <button class="btn danger">✕ Rejeitar</button>
+            <button class="btn ghost">Editar argumentos</button>
+            <button class="btn ghost">Aprovar similares (2)</button>
+            <span style="margin-left:auto;align-self:center;font-size:10.5px;color:var(--txt2)">expira em 4:32 · <a href="#" style="color:var(--accent)">ver auditoria</a></span>
+          </div>
+        </div>
+
+        <!-- citations + custo -->
+        <div class="cites">
+          <span class="cite">↳ pause_overlay.dart:12–40</span>
+          <span class="cite">↳ game_manager.dart:88</span>
+          <span class="cite">↳ tool#fs.read_text:a91f</span>
+          <span class="cite">↳ run:git.status</span>
+        </div>
+        <div class="cost"><span>tokens <b>4.2k in / 610 out</b></span><span>custo estimado <b>$0.011</b></span><span>latência <b>1.8s TTFT</b></span><span>run budget <b>12%</b></span></div>
+      </div>
+    </div>
+
+    <!-- context chips -->
+    <div class="chips">
+      <span class="chip">@file game_overlays.dart <span class="tk">~1.2k tk</span><span class="x">✕</span></span>
+      <span class="chip">@selection L44–52 <span class="tk">86 tk</span><span class="x">✕</span></span>
+      <span class="chip">@git-diff <span class="tk">~400 tk</span><span class="x">✕</span></span>
+      <span class="chip warn">@terminal-output <span class="tk">truncado</span><span class="x">✕</span></span>
+    </div>
+
+    <!-- composer -->
+    <div class="composer">
+      <div class="comp-selectors">
+        <span class="sel mode">modo <b>Agent ▾</b></span>
+        <span class="sel">modelo <b>gpt-4o-mini ▾</b></span>
+        <span class="sel posture">postura <b>Executora ▾</b></span>
+        <span class="sel approval">aprovação <b>Review Each ▾</b></span>
+        <span class="sel" title="Provider health">🟢 openai · tools ✓ vision ✓ stream ✓</span>
+      </div>
+      <div class="comp-box">
+        <textarea placeholder="Pergunte, planeje ou delegue ao agente…  (/comandos · @contexto)"></textarea>
+        <div class="comp-bar">
+          <div class="comp-icons"><span title="Anexar imagem/arquivo">📎</span><span title="Voz (indisponível: sem API configurada)" style="opacity:.4">🎤</span><span title="Comandos /" >⌘</span><span title="Aprovações pendentes (1)">☑<sup style="color:var(--warn)">1</sup></span></div>
+          <span class="tokens">ctx 5.8k / 128k · ≈$0.014</span>
+          <button class="btn ghost" style="font-size:11px;padding:4px 10px">■ Stop</button>
+          <button class="send">Enviar ↵</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ================= STATUS BAR ================= -->
+<footer class="statusbar">
+  <div class="sb branch">⎇ feat/game-over-panel ↑2</div>
+  <div class="sb">🔴 0 · 🟡 1 problem</div>
+  <div class="sb">✓ testes 14/14</div>
+  <div class="sb"><span class="sdot green"></span> openai ok</div>
+  <div class="sb"><span class="sdot yellow"></span> sidecar pty: missing_binary</div>
+  <div class="sb right">Agent · gpt-4o-mini</div>
+  <div class="sb">postura: Executora</div>
+  <div class="sb">aprovação: Review Each Change</div>
+  <div class="sb">tok 4.8k · $0.011</div>
+  <div class="sb warn">☑ 1 aprovação pendente</div>
+  <div class="sb" title="Linha/coluna do cursor">Ln 47, Col 12 · Spaces: 2 · UTF-8 · Dart</div>
+</footer>
+
+<!-- ================= COMMAND PALETTE ================= -->
+<div class="palette-overlay show" id="palette">
+  <div class="palette">
+    <input value="agen" placeholder="Buscar comandos… (Ctrl/Cmd+Shift+P)">
+    <div class="pres">
+      <div class="pre sel"><span class="pi">◎</span> Agent: Start Plan <span class="cat">agent</span><span class="pk kbd">Enter</span></div>
+      <div class="pre"><span class="pi">✓</span> Agent: Approve Pending <span class="cat">agent</span><span class="pk badge warn">1</span></div>
+      <div class="pre"><span class="pi">✕</span> Agent: Reject All <span class="cat">agent</span></div>
+      <div class="pre"><span class="pi">↺</span> Rollback Agent Run <span class="cat">agent</span><span class="pk kbd">Ctrl+Z</span></div>
+      <div class="pre"><span class="pi">▣</span> Checkpoint: Create <span class="cat">agent</span></div>
+      <div class="pre"><span class="pi">▷</span> Mode: Switch to Agent <span class="cat">view</span></div>
+      <div class="pre"><span class="pi">⛨</span> Posture: Security First <span class="cat">agent</span></div>
+      <div class="pre"><span class="pi">≡</span> Approval: Review Each Change <span class="cat">agent</span></div>
+    </div>
+    <div class="pfoot"><span>↑↓ navegar</span><span>Enter executar</span><span>&gt; comandos · @ arquivos · : números de linha</span><span>esc fechar</span></div>
+  </div>
+</div>
+
+<div class="anno">
+  <b>Mockup v1</b> — estados reais ilustrados: streaming, awaiting_approval, missing_binary (pty), truncado (@terminal-output), verificação obrigatória. Clique fora da paleta para escondê-la.
+</div>
+
+<script>
+  // interação mínima só para avaliar o layout (sem lógica de produto)
+  const pal = document.getElementById('palette');
+  pal.addEventListener('click', e => { if (e.target === pal) pal.classList.remove('show'); });
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) { e.preventDefault(); pal.classList.toggle('show'); }
+    if (e.key === 'Escape') pal.classList.remove('show');
+  });
+  document.querySelectorAll('.act').forEach(a => a.onclick = () => {
+    document.querySelector('.act.active')?.classList.remove('active'); a.classList.add('active');
+  });
+  document.querySelectorAll('.btab').forEach(t => t.onclick = () => {
+    document.querySelector('.btab.active')?.classList.remove('active'); t.classList.add('active');
+  });
+  document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+    document.querySelector('.tab.active')?.classList.remove('active'); t.classList.add('active');
+  });
+  document.querySelectorAll('.conv').forEach(t => t.onclick = () => {
+    document.querySelector('.conv.active')?.classList.remove('active'); t.classList.add('active');
+  });
+</script>
+</body>
+</html>
