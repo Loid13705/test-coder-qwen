@@ -27,8 +27,10 @@ Future<ToolResult<O>> _guard<O extends ToolOutput>(
     final code = e.osError?.errorCode == 13 // EACCES
         ? VtErrorCode.permissionDenied
         : VtErrorCode.internalError;
-    return ToolFailureResult<O>(
-        VtFailure(code: code, message: 'Erro de filesystem: ${e.message}', details: {'path': e.path}));
+    return ToolFailureResult<O>(VtFailure(
+        code: code,
+        message: 'Erro de filesystem: ${e.message}',
+        details: {'path': e.path}));
   }
 }
 
@@ -53,11 +55,13 @@ abstract class _FsTool extends VtTool<MapToolInput, TextOutput> {
   }
 
   @override
-  Future<ToolHealth> health(ToolContext ctx) async => const HealthOk('dart:io disponível');
+  Future<ToolHealth> health(ToolContext ctx) async =>
+      const HealthOk('dart:io disponível');
 
   /// Limite configurável de leitura de arquivos grandes (settings).
   int maxReadBytes(ToolContext ctx) =>
-      (ctx.settings.get('filesystem.maxReadBytes') as num?)?.toInt() ?? 5 * 1024 * 1024;
+      (ctx.settings.get('filesystem.maxReadBytes') as num?)?.toInt() ??
+      5 * 1024 * 1024;
 }
 
 /// Cópia recursiva real de diretório (dart:io não possui Directory.copySync).
@@ -82,7 +86,8 @@ class FsListTool extends _FsTool {
   @override
   String get title => 'List directory';
   @override
-  String get description => 'Lista um diretório real do workspace com paginação por nome.';
+  String get description =>
+      'Lista um diretório real do workspace com paginação por nome.';
   @override
   ToolCategory get category => ToolCategory.fileSystem;
   @override
@@ -105,7 +110,8 @@ class FsListTool extends _FsTool {
   @override
   Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) =>
       _guard<TextOutput>(this, () async {
-        final dir = Directory(await ctx.sandbox.resolveReadable(input.str('path'), ctx));
+        final dir = Directory(
+            await ctx.sandbox.resolveReadable(input.str('path'), ctx));
         if (!await dir.exists()) {
           throw VtFailure(
               code: VtErrorCode.validationFailed,
@@ -126,7 +132,9 @@ class FsListTool extends _FsTool {
           items: slice,
           hasMore: next < names.length,
           nextCursor: next < names.length ? '$next' : null,
-          prevCursor: startIdx > 0 ? '${(startIdx - pageSize).clamp(0, startIdx)}' : null,
+          prevCursor: startIdx > 0
+              ? '${(startIdx - pageSize).clamp(0, startIdx)}'
+              : null,
           pageSize: pageSize,
           totalEstimate: names.length,
         );
@@ -137,7 +145,9 @@ class FsListTool extends _FsTool {
             'nextCursor': page.nextCursor,
             'total': names.length,
           }),
-          citations: [Citation(sourceType: 'file', sourceRef: dir.path, label: dir.path)],
+          citations: [
+            Citation(sourceType: 'file', sourceRef: dir.path, label: dir.path)
+          ],
         );
       });
 }
@@ -150,7 +160,8 @@ class FsStatTool extends _FsTool {
   @override
   String get title => 'Stat path';
   @override
-  String get description => 'Retorna estatísticas reais (tamanho, mtimes, tipo) de um caminho.';
+  String get description =>
+      'Retorna estatísticas reais (tamanho, mtimes, tipo) de um caminho.';
   @override
   RiskLevel get risk => RiskLevel.readOnly;
   @override
@@ -163,7 +174,9 @@ class FsStatTool extends _FsTool {
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
         'required': ['path'],
-        'properties': {'path': {'type': 'string'}},
+        'properties': {
+          'path': {'type': 'string'}
+        },
       };
 
   @override
@@ -180,9 +193,11 @@ class FsStatTool extends _FsTool {
         final stat = type == FileSystemEntityType.directory
             ? Directory(p).statSync()
             : File(p).statSync();
-        return ToolSuccess(data: TextOutput(jsonEncode({
+        return ToolSuccess(
+            data: TextOutput(jsonEncode({
           'path': p,
-          'type': type.toString().split('.').last, // file/directory/link/notFound
+          'type':
+              type.toString().split('.').last, // file/directory/link/notFound
           'size': stat.size,
           'modified': stat.modified.toIso8601String(),
           'accessed': stat.accessed.toIso8601String(),
@@ -234,10 +249,14 @@ class FsReadTextTool extends _FsTool {
         if (size > maxReadBytes(ctx)) {
           throw VtFailure(
             code: VtErrorCode.validationFailed,
-            message: 'Arquivo ($size bytes) excede filesystem.maxReadBytes (${maxReadBytes(ctx)}). '
+            message:
+                'Arquivo ($size bytes) excede filesystem.maxReadBytes (${maxReadBytes(ctx)}). '
                 'Use fs.read_bytes em chunks ou aumente o limite em Settings → FileSystem.',
             recoveryActions: const [
-              RecoveryAction(kind: 'open_settings', label: 'Ajustar limite em Settings', target: 'fileSystem')
+              RecoveryAction(
+                  kind: 'open_settings',
+                  label: 'Ajustar limite em Settings',
+                  target: 'fileSystem')
             ],
           );
         }
@@ -252,7 +271,14 @@ class FsReadTextTool extends _FsTool {
         }
         return ToolSuccess(
           data: TextOutput(text, metadata: {'path': p, 'bytes': size}),
-          citations: [Citation(sourceType: 'file', sourceRef: p, label: p, lineStart: ls, lineEnd: le)],
+          citations: [
+            Citation(
+                sourceType: 'file',
+                sourceRef: p,
+                label: p,
+                lineStart: ls,
+                lineEnd: le)
+          ],
         );
       });
 }
@@ -294,8 +320,11 @@ class FsWriteTextTool extends _FsTool {
         final existedBefore = f.existsSync();
         final previous = existedBefore ? await f.readAsBytes() : null;
         // hash pré-write registrado para checkpoint/rollback reais
-        final beforeHash = previous != null ? crypto.sha256.convert(previous).toString() : null;
-        final sink = f.openSync(mode: input.boolOf('append') ? FileMode.append : FileMode.write);
+        final beforeHash = previous != null
+            ? crypto.sha256.convert(previous).toString()
+            : null;
+        final sink = f.openSync(
+            mode: input.boolOf('append') ? FileMode.append : FileMode.write);
         try {
           sink.writeStringSync(input.str('content'));
         } finally {
@@ -323,7 +352,8 @@ class FsReadBytesTool extends _FsTool {
   @override
   String get title => 'Read bytes';
   @override
-  String get description => 'Lê bytes reais em chunk (offset/length), base64 na saída.';
+  String get description =>
+      'Lê bytes reais em chunk (offset/length), base64 na saída.';
   @override
   RiskLevel get risk => RiskLevel.readOnly;
   @override
@@ -349,15 +379,20 @@ class FsReadBytesTool extends _FsTool {
         final p = await ctx.sandbox.resolveReadable(input.str('path'), ctx);
         final f = File(p);
         if (!f.existsSync()) {
-          throw VtFailure(code: VtErrorCode.validationFailed, message: 'Arquivo não encontrado: $p');
+          throw VtFailure(
+              code: VtErrorCode.validationFailed,
+              message: 'Arquivo não encontrado: $p');
         }
         final raf = await f.open();
         try {
-          final offset = (input.intOrNull('offset') ?? 0).clamp(0, await raf.length());
-          final len = (input.intOrNull('length') ?? 65536).clamp(1, 1024 * 1024);
+          final offset =
+              (input.intOrNull('offset') ?? 0).clamp(0, await raf.length());
+          final len =
+              (input.intOrNull('length') ?? 65536).clamp(1, 1024 * 1024);
           await raf.setPosition(offset);
           final bytes = await raf.read(len);
-          return ToolSuccess(data: TextOutput(base64Encode(bytes), metadata: {
+          return ToolSuccess(
+              data: TextOutput(base64Encode(bytes), metadata: {
             'path': p,
             'offset': offset,
             'read': bytes.length,
@@ -377,7 +412,8 @@ class FsWriteBytesTool extends _FsTool {
   @override
   String get title => 'Write bytes';
   @override
-  String get description => 'Escreve bytes validados (base64) com aprovação e checksum pós-escrita.';
+  String get description =>
+      'Escreve bytes validados (base64) com aprovação e checksum pós-escrita.';
   @override
   RiskLevel get risk => RiskLevel.localWrite;
   @override
@@ -404,7 +440,8 @@ class FsWriteBytesTool extends _FsTool {
           bytes = base64Decode(input.str('base64'));
         } on FormatException {
           throw VtFailure(
-              code: VtErrorCode.validationFailed, message: 'Payload base64 inválido.');
+              code: VtErrorCode.validationFailed,
+              message: 'Payload base64 inválido.');
         }
         final p = await ctx.sandbox.resolveWritable(input.str('path'), ctx);
         await File(p).writeAsBytes(bytes);
@@ -415,7 +452,8 @@ class FsWriteBytesTool extends _FsTool {
               message: 'Verificação pós-escrita falhou: tamanho divergente.',
               details: {'expected': bytes.length, 'actual': written.length});
         }
-        return ToolSuccess(data: TextOutput('OK', metadata: {
+        return ToolSuccess(
+            data: TextOutput('OK', metadata: {
           'path': p,
           'sha256': crypto.sha256.convert(written).toString(),
         }));
@@ -453,7 +491,8 @@ class FsCopyTool extends _FsTool {
   Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) =>
       _guard<TextOutput>(this, () async {
         final src = await ctx.sandbox.resolveReadable(input.str('source'), ctx);
-        final dst = await ctx.sandbox.resolveWritable(input.str('destination'), ctx);
+        final dst =
+            await ctx.sandbox.resolveWritable(input.str('destination'), ctx);
         final type = FileSystemEntity.typeSync(src);
         switch (type) {
           case FileSystemEntityType.file:
@@ -462,9 +501,12 @@ class FsCopyTool extends _FsTool {
             await _copyDirectoryRecursive(src, dst);
           default:
             throw VtFailure(
-                code: VtErrorCode.validationFailed, message: 'Origem inexistente: $src');
+                code: VtErrorCode.validationFailed,
+                message: 'Origem inexistente: $src');
         }
-        return ToolSuccess(data: TextOutput('OK', metadata: {'source': src, 'destination': dst}));
+        return ToolSuccess(
+            data: TextOutput('OK',
+                metadata: {'source': src, 'destination': dst}));
       });
 }
 
@@ -476,7 +518,8 @@ class FsMoveTool extends _FsTool {
   @override
   String get title => 'Move file/dir';
   @override
-  String get description => 'Move arquivo/pasta real com checagem de sandbox nos dois lados.';
+  String get description =>
+      'Move arquivo/pasta real com checagem de sandbox nos dois lados.';
   @override
   RiskLevel get risk => RiskLevel.localWrite;
   @override
@@ -499,17 +542,21 @@ class FsMoveTool extends _FsTool {
   Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) =>
       _guard<TextOutput>(this, () async {
         final src = await ctx.sandbox.resolveWritable(input.str('source'), ctx);
-        final dst = await ctx.sandbox.resolveWritable(input.str('destination'), ctx);
+        final dst =
+            await ctx.sandbox.resolveWritable(input.str('destination'), ctx);
         final type = FileSystemEntity.typeSync(src);
         if (type == FileSystemEntityType.notFound) {
-          throw VtFailure(code: VtErrorCode.validationFailed, message: 'Origem inexistente: $src');
+          throw VtFailure(
+              code: VtErrorCode.validationFailed,
+              message: 'Origem inexistente: $src');
         }
         if (type == FileSystemEntityType.directory) {
           await Directory(src).rename(dst);
         } else {
           await File(src).rename(dst);
         }
-        return ToolSuccess(data: TextOutput('OK', metadata: {'from': src, 'to': dst}));
+        return ToolSuccess(
+            data: TextOutput('OK', metadata: {'from': src, 'to': dst}));
       });
 }
 
@@ -552,16 +599,20 @@ class FsRenameTool extends _FsTool {
               code: VtErrorCode.validationFailed,
               message: 'newName deve ser apenas o nome-base, sem separadores.');
         }
-        final entity = FileSystemEntity.typeSync(p) == FileSystemEntityType.directory
-            ? Directory(p).parent.path
-            : File(p).parent.path;
+        final entity =
+            FileSystemEntity.typeSync(p) == FileSystemEntityType.directory
+                ? Directory(p).parent.path
+                : File(p).parent.path;
         final dst = joinPath(entity, newName);
         if (FileSystemEntity.typeSync(p) == FileSystemEntityType.notFound) {
-          throw VtFailure(code: VtErrorCode.validationFailed, message: 'Caminho inexistente: $p');
+          throw VtFailure(
+              code: VtErrorCode.validationFailed,
+              message: 'Caminho inexistente: $p');
         }
         await File(p).rename(dst);
         final lspRefs = ctx.settings.get('lsp.available') == true;
-        return ToolSuccess(data: TextOutput('OK', metadata: {
+        return ToolSuccess(
+            data: TextOutput('OK', metadata: {
           'from': p,
           'to': dst,
           'referencesUpdated': lspRefs,
@@ -593,7 +644,9 @@ class FsCreateDirTool extends _FsTool {
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
         'required': ['path'],
-        'properties': {'path': {'type': 'string'}},
+        'properties': {
+          'path': {'type': 'string'}
+        },
       };
 
   @override
@@ -658,7 +711,8 @@ class FsGlobTool extends _FsTool {
         case '{':
           final end = glob.indexOf('}', i);
           if (end > i) {
-            sb.write('(?:${glob.substring(i + 1, end).split(',').map(RegExp.escape).join('|')})');
+            sb.write(
+                '(?:${glob.substring(i + 1, end).split(',').map(RegExp.escape).join('|')})');
             i = end;
           } else {
             sb.write(RegExp.escape(c));
@@ -679,7 +733,8 @@ class FsGlobTool extends _FsTool {
             : ctx.workspaceRoots.first;
         final re = globToRegExp(input.str('pattern'));
         final matches = <String>[];
-        await for (final e in Directory(root).list(recursive: true, followLinks: false)) {
+        await for (final e
+            in Directory(root).list(recursive: true, followLinks: false)) {
           final rel = relativePath(e.path, root);
           if (re.hasMatch(rel.replaceAll('\\', '/'))) matches.add(rel);
           if (matches.length > 10000) break; // proteção real contra explosão
@@ -689,7 +744,8 @@ class FsGlobTool extends _FsTool {
         final start = int.tryParse(input.str('cursor')) ?? 0;
         final slice = matches.skip(start).take(pageSize).toList();
         final next = start + slice.length;
-        return ToolSuccess(data: TextOutput(jsonEncode(slice), metadata: {
+        return ToolSuccess(
+            data: TextOutput(jsonEncode(slice), metadata: {
           'hasMore': next < matches.length,
           'nextCursor': next < matches.length ? '$next' : null,
           'total': matches.length,
@@ -738,16 +794,19 @@ class FsSearchContentTool extends _FsTool {
       _guard<TextOutput>(this, () async {
         final query = input.str('query');
         if (query.isEmpty) {
-          throw VtFailure(code: VtErrorCode.validationFailed, message: 'Query vazia.');
+          throw VtFailure(
+              code: VtErrorCode.validationFailed, message: 'Query vazia.');
         }
         final RegExp re;
         try {
           re = input.boolOf('regex')
               ? RegExp(query, caseSensitive: input.boolOf('caseSensitive'))
-              : RegExp(RegExp.escape(query), caseSensitive: input.boolOf('caseSensitive'));
+              : RegExp(RegExp.escape(query),
+                  caseSensitive: input.boolOf('caseSensitive'));
         } on FormatException catch (e) {
           throw VtFailure(
-              code: VtErrorCode.validationFailed, message: 'Regex inválida: ${e.message}');
+              code: VtErrorCode.validationFailed,
+              message: 'Regex inválida: ${e.message}');
         }
         final includeRe = input.values['include'] != null
             ? FsGlobTool.globToRegExp(input.str('include'))
@@ -755,8 +814,15 @@ class FsSearchContentTool extends _FsTool {
         final ctxLines = input.intOrNull('contextLines') ?? 0;
         final results = <Map<String, Object?>>[];
         final root = ctx.workspaceRoots.first;
-        final skipDirs = {'.git', 'build', '.dart_tool', 'node_modules', '.idea'};
-        await for (final e in Directory(root).list(recursive: true, followLinks: false)) {
+        final skipDirs = {
+          '.git',
+          'build',
+          '.dart_tool',
+          'node_modules',
+          '.idea'
+        };
+        await for (final e
+            in Directory(root).list(recursive: true, followLinks: false)) {
           if (e is! File) continue;
           final rel = relativePath(e.path, root).replaceAll('\\', '/');
           if (rel.split('/').any(skipDirs.contains)) continue;
@@ -778,7 +844,8 @@ class FsSearchContentTool extends _FsTool {
                 if (ctxLines > 0)
                   'before': lines.sublist((i - ctxLines).clamp(0, i), i),
                 if (ctxLines > 0)
-                  'after': lines.sublist(i + 1, (i + 1 + ctxLines).clamp(i + 1, lines.length)),
+                  'after': lines.sublist(
+                      i + 1, (i + 1 + ctxLines).clamp(i + 1, lines.length)),
               });
             }
             if (results.length >= 5000) break;
@@ -789,7 +856,8 @@ class FsSearchContentTool extends _FsTool {
         final start = int.tryParse(input.str('cursor')) ?? 0;
         final slice = results.skip(start).take(pageSize).toList();
         final next = start + slice.length;
-        return ToolSuccess(data: TextOutput(jsonEncode(slice), metadata: {
+        return ToolSuccess(
+            data: TextOutput(jsonEncode(slice), metadata: {
           'hasMore': next < results.length,
           'nextCursor': next < results.length ? '$next' : null,
           'total': results.length,
@@ -818,7 +886,9 @@ class FsChecksumTool extends _FsTool {
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
         'required': ['path'],
-        'properties': {'path': {'type': 'string'}},
+        'properties': {
+          'path': {'type': 'string'}
+        },
       };
 
   @override
@@ -827,10 +897,14 @@ class FsChecksumTool extends _FsTool {
         final p = await ctx.sandbox.resolveReadable(input.str('path'), ctx);
         final f = File(p);
         if (!f.existsSync()) {
-          throw VtFailure(code: VtErrorCode.validationFailed, message: 'Arquivo não encontrado: $p');
+          throw VtFailure(
+              code: VtErrorCode.validationFailed,
+              message: 'Arquivo não encontrado: $p');
         }
         final digest = await f.openRead().transform(crypto.sha256).first;
-        return ToolSuccess(data: TextOutput(digest.toString(), metadata: {'path': p, 'algo': 'sha256'}));
+        return ToolSuccess(
+            data: TextOutput(digest.toString(),
+                metadata: {'path': p, 'algo': 'sha256'}));
       });
 }
 
@@ -859,11 +933,14 @@ class FsDeleteTrashTool extends _FsTool {
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
         'required': ['path'],
-        'properties': {'path': {'type': 'string'}},
+        'properties': {
+          'path': {'type': 'string'}
+        },
       };
 
   static Future<String?> findBinary(String name) async {
-    final paths = (Platform.environment['PATH'] ?? '').split(Platform.isWindows ? ';' : ':');
+    final paths = (Platform.environment['PATH'] ?? '')
+        .split(Platform.isWindows ? ';' : ':');
     final exts = Platform.isWindows ? ['.exe', '.cmd', '.bat', ''] : [''];
     for (final dir in paths) {
       for (final ext in exts) {
@@ -876,7 +953,8 @@ class FsDeleteTrashTool extends _FsTool {
 
   @override
   Future<ToolHealth> health(ToolContext ctx) async {
-    if (Platform.isMacOS) return const HealthOk('Finder AppleScript disponível');
+    if (Platform.isMacOS)
+      return const HealthOk('Finder AppleScript disponível');
     if (Platform.isLinux) {
       final gio = await findBinary('gio');
       if (gio != null) return HealthOk(gio);
@@ -894,7 +972,9 @@ class FsDeleteTrashTool extends _FsTool {
       _guard<TextOutput>(this, () async {
         final p = await ctx.sandbox.resolveWritable(input.str('path'), ctx);
         if (FileSystemEntity.typeSync(p) == FileSystemEntityType.notFound) {
-          throw VtFailure(code: VtErrorCode.validationFailed, message: 'Caminho inexistente: $p');
+          throw VtFailure(
+              code: VtErrorCode.validationFailed,
+              message: 'Caminho inexistente: $p');
         }
         ProcessResult res;
         if (Platform.isLinux) {
@@ -926,11 +1006,13 @@ class FsDeleteTrashTool extends _FsTool {
         if (res.exitCode != 0) {
           throw VtFailure(
             code: VtErrorCode.internalError,
-            message: 'Falha real ao mover para lixeira (exit ${res.exitCode}): ${res.stderr}',
+            message:
+                'Falha real ao mover para lixeira (exit ${res.exitCode}): ${res.stderr}',
             details: {'stderr': res.stderr.toString()},
           );
         }
-        return ToolSuccess(data: TextOutput('Movido para a lixeira', metadata: {'path': p}));
+        return ToolSuccess(
+            data: TextOutput('Movido para a lixeira', metadata: {'path': p}));
       });
 }
 
@@ -949,7 +1031,8 @@ class FsPermanentDeleteTool extends _FsTool {
   @override
   ToolCategory get category => ToolCategory.fileSystem;
   @override
-  ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.typedConfirmation;
+  ApprovalPolicyMode get defaultApproval =>
+      ApprovalPolicyMode.typedConfirmation;
   @override
   bool get isIdempotent => false;
   @override
@@ -970,12 +1053,15 @@ class FsPermanentDeleteTool extends _FsTool {
         if (input.str('confirmText') != base) {
           throw VtFailure(
             code: VtErrorCode.validationFailed,
-            message: 'Confirmação tipada incorreta: digite exatamente "$base" em confirmText.',
+            message:
+                'Confirmação tipada incorreta: digite exatamente "$base" em confirmText.',
           );
         }
         final type = FileSystemEntity.typeSync(p);
         if (type == FileSystemEntityType.notFound) {
-          throw VtFailure(code: VtErrorCode.validationFailed, message: 'Caminho inexistente: $p');
+          throw VtFailure(
+              code: VtErrorCode.validationFailed,
+              message: 'Caminho inexistente: $p');
         }
         if (type == FileSystemEntityType.directory) {
           Directory(p).deleteSync(recursive: true);
@@ -987,4 +1073,3 @@ class FsPermanentDeleteTool extends _FsTool {
                 metadata: {'path': p, 'auditRequired': true}));
       });
 }
-

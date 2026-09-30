@@ -5,7 +5,8 @@ import 'dart:io';
 
 /// Procura um binário no PATH real do sistema (com extensões do Windows).
 Future<String?> findBinaryInPath(String name) async {
-  final paths = (Platform.environment['PATH'] ?? '').split(Platform.pathSeparator);
+  final paths =
+      (Platform.environment['PATH'] ?? '').split(Platform.pathSeparator);
   final exts = Platform.isWindows ? ['.exe', '.cmd', '.bat', ''] : [''];
   for (final dir in paths) {
     if (dir.isEmpty) continue;

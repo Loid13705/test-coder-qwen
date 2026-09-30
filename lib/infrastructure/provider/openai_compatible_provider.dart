@@ -37,7 +37,8 @@ class ProviderConfig {
 }
 
 class OpenAiCompatibleProvider implements LlmProvider {
-  OpenAiCompatibleProvider(this.config, {SecretRedactor redactor = const SecretRedactor()})
+  OpenAiCompatibleProvider(this.config,
+      {SecretRedactor redactor = const SecretRedactor()})
       : _redactor = redactor;
 
   final ProviderConfig config;
@@ -67,7 +68,9 @@ class OpenAiCompatibleProvider implements LlmProvider {
         message: 'Provider "${config.id}" sem base URL configurada.',
         setupUri: 'techvt://settings/providers/${config.id}',
         recoveryActions: const [
-          RecoveryAction(kind: 'configure_provider', label: 'Definir base URL em Settings → AI Providers'),
+          RecoveryAction(
+              kind: 'configure_provider',
+              label: 'Definir base URL em Settings → AI Providers'),
         ],
       );
     }
@@ -79,13 +82,16 @@ class OpenAiCompatibleProvider implements LlmProvider {
 
   Map<String, String> get _authHeaders => {
         'content-type': 'application/json',
-        if (config.apiKey.isNotEmpty) 'authorization': 'Bearer ${config.apiKey}',
+        if (config.apiKey.isNotEmpty)
+          'authorization': 'Bearer ${config.apiKey}',
         ...config.headers,
       };
 
-  Uri _uri(String path) => Uri.parse('${config.baseUrl.replaceAll(RegExp(r'/+$'), '')}/$path');
+  Uri _uri(String path) =>
+      Uri.parse('${config.baseUrl.replaceAll(RegExp(r'/+$'), '')}/$path');
 
-  Future<(int status, String body)> _sendJson(String path, Map<String, Object?> body) async {
+  Future<(int status, String body)> _sendJson(
+      String path, Map<String, Object?> body) async {
     final req = await _http.postUrl(_uri(path)).timeout(config.timeout);
     for (final h in _authHeaders.entries) {
       req.headers.set(h.key, h.value);
@@ -97,20 +103,25 @@ class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   VtFailure _failureForStatus(int status, String body) {
-    final safeBody = _redactor.redact(body.length > 600 ? body.substring(0, 600) : body);
+    final safeBody =
+        _redactor.redact(body.length > 600 ? body.substring(0, 600) : body);
     return switch (status) {
       401 || 403 => VtFailure(
           code: VtErrorCode.apiKeyMissing,
           message: 'Credencial recusada por "$id" (HTTP $status): $safeBody',
           setupUri: 'techvt://settings/providers/$id/key',
-          recoveryActions: const [RecoveryAction(kind: 'add_api_key', label: 'Atualizar API key')],
+          recoveryActions: const [
+            RecoveryAction(kind: 'add_api_key', label: 'Atualizar API key')
+          ],
         ),
       429 => VtFailure.rateLimited(id),
       >= 500 => VtFailure(
           code: VtErrorCode.networkUnavailable,
           message: 'Provider "$id" retornou HTTP $status: $safeBody',
           retryable: true,
-          recoveryActions: const [RecoveryAction(kind: 'retry', label: 'Tentar novamente')],
+          recoveryActions: const [
+            RecoveryAction(kind: 'retry', label: 'Tentar novamente')
+          ],
         ),
       _ => VtFailure(
           code: VtErrorCode.internalError,
@@ -170,7 +181,8 @@ class OpenAiCompatibleProvider implements LlmProvider {
           if (known.providerId == id && list.contains(known.id)) known,
         // Ids reais sem metadata conhecida entram desabilitados para tools —
         // capacidades desconhecidas NUNCA são presumidas.
-        for (final unknownId in list.difference(kKnownModels.map((m) => m.id).toSet()))
+        for (final unknownId
+            in list.difference(kKnownModels.map((m) => m.id).toSet()))
           ModelInfo(
             id: unknownId,
             providerId: id,
@@ -202,7 +214,11 @@ class OpenAiCompatibleProvider implements LlmProvider {
         'max_tokens': 128,
         'temperature': 0,
         'messages': [
-          {'role': 'system', 'content': 'Continue o código exatamente após o cursor. Responda apenas com o texto de continuação, sem explicações.'},
+          {
+            'role': 'system',
+            'content':
+                'Continue o código exatamente após o cursor. Responda apenas com o texto de continuação, sem explicações.'
+          },
           {'role': 'user', 'content': 'PREFIX:\n$prefix\nSUFFIX:\n$suffix'},
         ],
       });
@@ -211,7 +227,9 @@ class OpenAiCompatibleProvider implements LlmProvider {
       final choices = decoded['choices'] as List? ?? const [];
       final text = choices.isEmpty
           ? ''
-          : (((choices.first as Map)['message'] as Map?)?['content'] as String? ?? '');
+          : (((choices.first as Map)['message'] as Map?)?['content']
+                  as String? ??
+              '');
       return ToolCompletionOutcome(text: text, modelId: modelId);
     } on VtFailure {
       rethrow;
@@ -234,7 +252,9 @@ class OpenAiCompatibleProvider implements LlmProvider {
       yield ErrorChunk(pre);
       return;
     }
-    final model = kKnownModels.where((m) => m.id == modelId && m.providerId == id).firstOrNull;
+    final model = kKnownModels
+        .where((m) => m.id == modelId && m.providerId == id)
+        .firstOrNull;
     if (toolSchemas.isNotEmpty && model != null && !model.capabilities.tools) {
       yield ErrorChunk(VtFailure.modelDoesNotSupportTools(modelId));
       return;
@@ -262,14 +282,16 @@ class OpenAiCompatibleProvider implements LlmProvider {
     HttpClientRequest req;
     HttpClientResponse res;
     try {
-      req = await _http.postUrl(_uri('chat/completions')).timeout(config.timeout);
+      req =
+          await _http.postUrl(_uri('chat/completions')).timeout(config.timeout);
       for (final h in _authHeaders.entries) {
-      req.headers.set(h.key, h.value);
-    }
+        req.headers.set(h.key, h.value);
+      }
       req.write(jsonEncode(reqBody));
       res = await req.close().timeout(config.timeout);
     } on SocketException catch (e) {
-      yield ErrorChunk(VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}'));
+      yield ErrorChunk(
+          VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}'));
       return;
     } on TimeoutException {
       yield ErrorChunk(VtFailure.timeout(config.timeout));
@@ -283,9 +305,8 @@ class OpenAiCompatibleProvider implements LlmProvider {
 
     final toolCallAccum = <int, _PartialToolCall>{};
     try {
-      await for (final line in res
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())) {
+      await for (final line
+          in res.transform(utf8.decoder).transform(const LineSplitter())) {
         if (!line.startsWith('data:')) continue;
         final payload = line.substring(5).trim();
         if (payload == '[DONE]') break;
@@ -299,7 +320,8 @@ class OpenAiCompatibleProvider implements LlmProvider {
         if (usage is Map) {
           yield UsageChunk(
             promptTokens: (usage['prompt_tokens'] as num?)?.toInt() ?? 0,
-            completionTokens: (usage['completion_tokens'] as num?)?.toInt() ?? 0,
+            completionTokens:
+                (usage['completion_tokens'] as num?)?.toInt() ?? 0,
           );
         }
         final choices = chunk['choices'] as List?;
@@ -314,10 +336,12 @@ class OpenAiCompatibleProvider implements LlmProvider {
             final m = (tc as Map).cast<String, Object?>();
             final idx = (m['index'] as num?)?.toInt() ?? 0;
             final fn = (m['function'] as Map?)?.cast<String, Object?>();
-            final acc = toolCallAccum.putIfAbsent(idx, () => _PartialToolCall());
+            final acc =
+                toolCallAccum.putIfAbsent(idx, () => _PartialToolCall());
             if (m['id'] != null) acc.id = m['id'] as String;
             if (fn?['name'] != null) acc.name += fn!['name'] as String;
-            if (fn?['arguments'] != null) acc.args += fn!['arguments'] as String;
+            if (fn?['arguments'] != null)
+              acc.args += fn!['arguments'] as String;
           }
         }
         final finish = c0['finish_reason'] as String?;
@@ -325,7 +349,8 @@ class OpenAiCompatibleProvider implements LlmProvider {
           for (final acc in toolCallAccum.values) {
             if (acc.name.isNotEmpty) {
               yield ToolCallStartChunk(
-                  callId: acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
+                  callId:
+                      acc.id ?? 'call_${DateTime.now().microsecondsSinceEpoch}',
                   toolId: acc.name,
                   argsJson: acc.args);
             }

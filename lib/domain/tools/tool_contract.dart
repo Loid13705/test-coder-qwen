@@ -71,21 +71,24 @@ class HealthOk extends ToolHealth {
   const HealthOk([this.detail]);
   final String? detail;
   @override
-  Map<String, Object?> toJson() => {'status': 'ok', if (detail != null) 'detail': detail};
+  Map<String, Object?> toJson() =>
+      {'status': 'ok', if (detail != null) 'detail': detail};
 }
 
 class HealthMissingBinary extends ToolHealth {
   const HealthMissingBinary(this.binary);
   final String binary;
   @override
-  Map<String, Object?> toJson() => {'status': 'missing_binary', 'binary': binary};
+  Map<String, Object?> toJson() =>
+      {'status': 'missing_binary', 'binary': binary};
 }
 
 class HealthMissingSidecar extends ToolHealth {
   const HealthMissingSidecar(this.sidecar);
   final String sidecar;
   @override
-  Map<String, Object?> toJson() => {'status': 'missing_sidecar', 'sidecar': sidecar};
+  Map<String, Object?> toJson() =>
+      {'status': 'missing_sidecar', 'sidecar': sidecar};
 }
 
 class HealthUnconfigured extends ToolHealth {
@@ -234,7 +237,8 @@ abstract class VtTool<I extends ToolInput, O extends ToolOutput> {
 
   /// Validação estrutural do input contra o schema declarado (real).
   void validateInput(Map<String, Object?> raw) {
-    final required = (inputSchema['required'] as List?)?.cast<String>() ?? const [];
+    final required =
+        (inputSchema['required'] as List?)?.cast<String>() ?? const [];
     for (final r in required) {
       if (!raw.containsKey(r) || raw[r] == null) {
         throw VtFailure(
@@ -265,7 +269,8 @@ abstract class VtTool<I extends ToolInput, O extends ToolOutput> {
 }
 
 class RetryPolicy {
-  const RetryPolicy({this.maxAttempts = 1, this.backoff = const Duration(seconds: 1)});
+  const RetryPolicy(
+      {this.maxAttempts = 1, this.backoff = const Duration(seconds: 1)});
   final int maxAttempts;
   final Duration backoff;
   Map<String, Object?> toJson() =>
@@ -282,5 +287,6 @@ class MapToolInput extends ToolInput {
   String str(String k) => values[k] as String? ?? '';
   int? intOrNull(String k) => (values[k] as num?)?.toInt();
   bool boolOf(String k, [bool def = false]) => values[k] as bool? ?? def;
-  List<String> list(String k) => (values[k] as List?)?.cast<String>() ?? const [];
+  List<String> list(String k) =>
+      (values[k] as List?)?.cast<String>() ?? const [];
 }

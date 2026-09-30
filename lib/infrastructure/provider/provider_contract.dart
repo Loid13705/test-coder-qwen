@@ -99,7 +99,8 @@ const kKnownModels = <ModelInfo>[
     providerId: 'openai',
     displayName: 'GPT-4o',
     contextWindow: 128000,
-    capabilities: ModelCapabilities(tools: true, vision: true, streaming: true, jsonMode: true),
+    capabilities: ModelCapabilities(
+        tools: true, vision: true, streaming: true, jsonMode: true),
     pricing: ModelPricing(inputPer1MUsd: 2.50, outputPer1MUsd: 10.00),
   ),
   ModelInfo(
@@ -108,7 +109,12 @@ const kKnownModels = <ModelInfo>[
     displayName: 'GPT-4o mini',
     contextWindow: 128000,
     capabilities: ModelCapabilities(
-        tools: true, vision: true, streaming: true, jsonMode: true, fast: true, cheap: true),
+        tools: true,
+        vision: true,
+        streaming: true,
+        jsonMode: true,
+        fast: true,
+        cheap: true),
     pricing: ModelPricing(inputPer1MUsd: 0.15, outputPer1MUsd: 0.60),
   ),
   ModelInfo(
@@ -116,7 +122,8 @@ const kKnownModels = <ModelInfo>[
     providerId: 'openai',
     displayName: 'o3-mini',
     contextWindow: 200000,
-    capabilities: ModelCapabilities(tools: true, streaming: true, jsonMode: true),
+    capabilities:
+        ModelCapabilities(tools: true, streaming: true, jsonMode: true),
     pricing: ModelPricing(inputPer1MUsd: 1.10, outputPer1MUsd: 4.40),
   ),
   ModelInfo(
@@ -143,7 +150,11 @@ const kKnownModels = <ModelInfo>[
     displayName: 'Gemini 2.5 Pro',
     contextWindow: 1048576,
     capabilities: ModelCapabilities(
-        tools: true, vision: true, streaming: true, jsonMode: true, longContext: true),
+        tools: true,
+        vision: true,
+        streaming: true,
+        jsonMode: true,
+        longContext: true),
     pricing: ModelPricing(inputPer1MUsd: 1.25, outputPer1MUsd: 10.00),
   ),
   ModelInfo(
@@ -152,8 +163,13 @@ const kKnownModels = <ModelInfo>[
     displayName: 'Gemini 2.5 Flash',
     contextWindow: 1048576,
     capabilities: ModelCapabilities(
-        tools: true, vision: true, streaming: true, jsonMode: true,
-        longContext: true, fast: true, cheap: true),
+        tools: true,
+        vision: true,
+        streaming: true,
+        jsonMode: true,
+        longContext: true,
+        fast: true,
+        cheap: true),
     pricing: ModelPricing(inputPer1MUsd: 0.30, outputPer1MUsd: 2.50),
   ),
   ModelInfo(
@@ -196,14 +212,16 @@ class DeltaChunk extends StreamChunk {
 }
 
 class ToolCallStartChunk extends StreamChunk {
-  const ToolCallStartChunk({required this.callId, required this.toolId, required this.argsJson});
+  const ToolCallStartChunk(
+      {required this.callId, required this.toolId, required this.argsJson});
   final String callId;
   final String toolId;
   final String argsJson;
 }
 
 class UsageChunk extends StreamChunk {
-  const UsageChunk({required this.promptTokens, required this.completionTokens});
+  const UsageChunk(
+      {required this.promptTokens, required this.completionTokens});
   final int promptTokens;
   final int completionTokens;
 }
@@ -260,7 +278,9 @@ abstract class LlmProvider {
   /// Completions simples (ghost text). Retorna texto vazio se indisponível,
   /// mas NUNCA texto fabricado — falhas viram VtFailure.
   Future<ToolCompletionOutcome> completeForCompletion(
-      {required String modelId, required String prefix, required String suffix});
+      {required String modelId,
+      required String prefix,
+      required String suffix});
 
   /// Chat/streaming real. Quando o modelo não suporta streaming, a implementação
   /// emite um único DeltaChunk com a resposta real + DoneChunk.
