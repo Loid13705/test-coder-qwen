@@ -80,12 +80,75 @@ class ProviderConfig {
   }
 }
 
+/// Wire protocol suportado pelo [OpenAiCompatibleProvider].
+enum OpenAiCompatWire {
+  /// `/chat/completions` clássico (OpenAI, DeepSeek, Groq, Mistral, Ollama
+  /// via `/v1`, LM Studio, qualquer endpoint compatível).
+  chatCompletions,
+
+  /// `/completions` legado para modelos de completion pura que não expõem
+  /// chat completions (ex.: `gpt-3.5-base`, alguns adapters locais).
+  textCompletions,
+
+  /// `/messages` da Anthropic Messages API — usado por gateways/proxies
+  /// Anthropic-compatíveis. Habilita o envelope SSE nativo
+  /// (`content_block_delta` etc.) em vez de `choices[].delta`.
+  anthropicMessages,
+}
+
+/// Presets de configuração dos provedores conhecidos. A UI de Settings usa
+/// isto para popular baseUrl padrão + wire protocol esperado; o usuário pode
+/// sobrescrever tudo (endpoints proxy/custom).
+class ProviderPreset {
+  const ProviderPreset(this.id, this.displayName, this.defaultBaseUrl,
+      [this.wire = OpenAiCompatWire.chatCompletions]);
+  final String id;
+  final String displayName;
+  final String defaultBaseUrl;
+  final OpenAiCompatWire wire;
+}
+
+const kProviderPresets = <ProviderPreset>[
+  ProviderPreset('openai', 'OpenAI', 'https://api.openai.com/v1'),
+  ProviderPreset(
+      'anthropic', 'Anthropic', 'https://api.anthropic.com/v1',
+      OpenAiCompatWire.anthropicMessages),
+  ProviderPreset('deepseek', 'DeepSeek', 'https://api.deepseek.com/v1'),
+  ProviderPreset('ollama', 'Ollama (local)', 'http://localhost:11434/v1'),
+  ProviderPreset('lmstudio', 'LM Studio (local)', 'http://localhost:1234/v1'),
+  ProviderPreset('groq', 'Groq', 'https://api.groq.com/openai/v1'),
+  ProviderPreset('mistral', 'Mistral', 'https://api.mistral.ai/v1'),
+  ProviderPreset('custom', 'Custom (OpenAI-compatível)', ''),
+];
+
+/// Detecção prática de wire pelo host do endpoint — usada só como DEFAULT no
+/// form de Settings; a escolha final é sempre confirmada/sobrescrita pelo
+/// usuário (nunca presumir silenciosamente).
+OpenAiCompatWire? detectWireFromHost(String baseUrl) {
+  final host = Uri.tryParse(baseUrl)?.host.toLowerCase() ?? '';
+  if (host.isEmpty) return null;
+  if (host == 'api.anthropic.com' || host.endsWith('.anthropic.com')) {
+    return OpenAiCompatWire.anthropicMessages;
+  }
+  if (host.endsWith('openai.com') ||
+      host.endsWith('deepseek.com') ||
+      host.endsWith('groq.com') ||
+      host.endsWith('mistral.ai') ||
+      host == 'localhost' ||
+      host == '127.0.0.1') {
+    return OpenAiCompatWire.chatCompletions;
+  }
+  return null; // desconhecido → UI pergunta
+}
+
 class OpenAiCompatibleProvider implements LlmProvider {
   OpenAiCompatibleProvider(this.config,
-      {SecretRedactor redactor = const SecretRedactor()})
+      {SecretRedactor redactor = const SecretRedactor(),
+      this.wire = OpenAiCompatWire.chatCompletions})
       : _redactor = redactor;
 
   final ProviderConfig config;
+  final OpenAiCompatWire wire;
   final SecretRedactor _redactor;
   HttpClient? _client;
 
@@ -210,11 +273,28 @@ class OpenAiCompatibleProvider implements LlmProvider {
         'content-type': 'application/json',
         if (config.apiKey.isNotEmpty)
           'authorization': 'Bearer ${config.apiKey}',
+        ..._wireHeaders,
         ...config.headers,
       };
 
   Uri _uri(String path) =>
       Uri.parse('${config.baseUrl.replaceAll(RegExp(r'/+$'), '')}/$path');
+
+  /// Caminho do endpoint de geração conforme o wire protocol.
+  String get _generatePath => switch (wire) {
+        OpenAiCompatWire.chatCompletions => 'chat/completions',
+        OpenAiCompatWire.textCompletions => 'completions',
+        OpenAiCompatWire.anthropicMessages => 'messages',
+      };
+
+  /// Header `x-api-key` exigido pelo wire Anthropic (gateways/proxies).
+  Map<String, String> get _wireHeaders => wire ==
+          OpenAiCompatWire.anthropicMessages
+      ? {
+          if (config.apiKey.isNotEmpty) 'x-api-key': config.apiKey,
+          'anthropic-version': '2023-06-01',
+        }
+      : const {};
 
   Future<(int status, String body)> _sendJson(
       String path, Map<String, Object?> body) async {
@@ -399,29 +479,64 @@ class OpenAiCompatibleProvider implements LlmProvider {
   }) async {
     final pre = _preflight();
     if (pre != null) throw pre;
+    const ghostPrompt = 'Continue o código exatamente após o cursor. '
+        'Responda apenas com o texto de continuação, sem explicações.';
     try {
-      final (status, body) = await _sendJson('chat/completions', {
-        'model': modelId,
-        'max_tokens': 128,
-        'temperature': 0,
-        'messages': [
-          {
-            'role': 'system',
-            'content':
-                'Continue o código exatamente após o cursor. Responda apenas com o texto de continuação, sem explicações.'
-          },
-          {'role': 'user', 'content': 'PREFIX:\n$prefix\nSUFFIX:\n$suffix'},
-        ],
-      });
-      if (status != 200) throw _failureForStatus(status, body);
-      final decoded = (jsonDecode(body) as Map).cast<String, Object?>();
-      final choices = decoded['choices'] as List? ?? const [];
-      final text = choices.isEmpty
-          ? ''
-          : (((choices.first as Map)['message'] as Map?)?['content']
-                  as String? ??
-              '');
-      return ToolCompletionOutcome(text: text, modelId: modelId);
+      final Map<String, Object?> decoded;
+      switch (wire) {
+        case OpenAiCompatWire.anthropicMessages:
+          final (status, body) = await _sendJson(_generatePath, {
+            'model': modelId,
+            'max_tokens': 128,
+            'temperature': 0,
+            'stream': false,
+            'system': ghostPrompt,
+            'messages': [
+              {'role': 'user', 'content': 'PREFIX:\n$prefix\nSUFFIX:\n$suffix'},
+            ],
+          });
+          if (status != 200) throw _failureForStatus(status, body);
+          decoded = (jsonDecode(body) as Map).cast<String, Object?>();
+          final blocks = decoded['content'] as List? ?? const [];
+          final text = blocks
+              .map((b) => (b as Map)['text'] as String?)
+              .whereType<String>()
+              .join();
+          return ToolCompletionOutcome(text: text, modelId: modelId);
+        case OpenAiCompatWire.textCompletions:
+          final (status, body) = await _sendJson(_generatePath, {
+            'model': modelId,
+            'max_tokens': 128,
+            'temperature': 0,
+            'prompt': '$ghostPrompt\n\nPREFIX:\n$prefix\nSUFFIX:\n$suffix',
+          });
+          if (status != 200) throw _failureForStatus(status, body);
+          decoded = (jsonDecode(body) as Map).cast<String, Object?>();
+          final choices = decoded['choices'] as List? ?? const [];
+          final text = choices.isEmpty
+              ? ''
+              : ((choices.first as Map)['text'] as String? ?? '');
+          return ToolCompletionOutcome(text: text, modelId: modelId);
+        case OpenAiCompatWire.chatCompletions:
+          final (status, body) = await _sendJson(_generatePath, {
+            'model': modelId,
+            'max_tokens': 128,
+            'temperature': 0,
+            'messages': [
+              {'role': 'system', 'content': ghostPrompt},
+              {'role': 'user', 'content': 'PREFIX:\n$prefix\nSUFFIX:\n$suffix'},
+            ],
+          });
+          if (status != 200) throw _failureForStatus(status, body);
+          decoded = (jsonDecode(body) as Map).cast<String, Object?>();
+          final choices = decoded['choices'] as List? ?? const [];
+          final text = choices.isEmpty
+              ? ''
+              : (((choices.first as Map)['message'] as Map?)?['content']
+                      as String? ??
+                  '');
+          return ToolCompletionOutcome(text: text, modelId: modelId);
+      }
     } on VtFailure {
       rethrow;
     } on SocketException {
@@ -536,29 +651,95 @@ class OpenAiCompatibleProvider implements LlmProvider {
       throw VtFailure.modelDoesNotSupportTools(modelId);
     }
     final supportsStreaming = model?.capabilities.streaming ?? true;
-    final reqBody = <String, Object?>{
-      'model': modelId,
-      'messages': [
-        for (final m in messages) {'role': m.role, 'content': m.content},
-      ],
-      if (options.temperature != null) 'temperature': options.temperature,
-      if (options.topP != null) 'top_p': options.topP,
-      if (options.maxTokens != null) 'max_tokens': options.maxTokens,
-      if (options.stopSequences.isNotEmpty) 'stop': options.stopSequences,
-      if (options.seed != null) 'seed': options.seed,
-      if (options.jsonMode) 'response_format': {'type': 'json_object'},
-      if (toolSchemas.isNotEmpty)
-        'tools': [
-          for (final t in toolSchemas) {'type': 'function', 'function': t}
-        ],
-      'stream': supportsStreaming,
-      if (supportsStreaming) 'stream_options': {'include_usage': true},
-    };
+    final Map<String, Object?> reqBody;
+    switch (wire) {
+      case OpenAiCompatWire.anthropicMessages:
+        // Proxy/gateway Anthropic-compatível: envelope Messages API real
+        // (system separado, tools com input_schema, stop_sequences).
+        final system = StringBuffer();
+        final msgs = <Map<String, Object?>>[];
+        for (final m in messages) {
+          switch (m.role) {
+            case 'system':
+              if (system.isNotEmpty) system.write('\n\n');
+              system.write(m.content);
+            case 'tool':
+              msgs.add({
+                'role': 'user',
+                'content': [
+                  {'type': 'tool_result', 'content': m.content}
+                ]
+              });
+            default:
+              msgs.add({'role': m.role, 'content': m.content});
+          }
+        }
+        if (msgs.isEmpty) {
+          throw VtFailure(
+            code: VtErrorCode.validationFailed,
+            message: 'Mensagens vazias: wire Anthropic exige ao menos um turno user.',
+          );
+        }
+        reqBody = <String, Object?>{
+          'model': modelId,
+          'max_tokens': options.maxTokens ?? 4096,
+          'stream': supportsStreaming,
+          'system': system.toString(),
+          'messages': msgs,
+          if (options.temperature != null) 'temperature': options.temperature,
+          if (options.topP != null) 'top_p': options.topP,
+          if (options.stopSequences.isNotEmpty)
+            'stop_sequences': options.stopSequences,
+          if (toolSchemas.isNotEmpty)
+            'tools': [
+              for (final t in toolSchemas)
+                {
+                  'name': t['name'],
+                  if (t['description'] != null) 'description': t['description'],
+                  'input_schema': t['parameters'] ??
+                      {'type': 'object', 'properties': <String, Object?>{}},
+                }
+            ],
+        };
+      case OpenAiCompatWire.textCompletions:
+        reqBody = <String, Object?>{
+          'model': modelId,
+          'prompt': [
+            for (final m in messages) '${m.role.toUpperCase()}: ${m.content}',
+            'ASSISTANT:',
+          ].join('\n\n'),
+          if (options.temperature != null) 'temperature': options.temperature,
+          if (options.topP != null) 'top_p': options.topP,
+          if (options.maxTokens != null) 'max_tokens': options.maxTokens,
+          if (options.stopSequences.isNotEmpty) 'stop': options.stopSequences,
+          if (options.seed != null) 'seed': options.seed,
+          'stream': supportsStreaming,
+        };
+      case OpenAiCompatWire.chatCompletions:
+        reqBody = <String, Object?>{
+          'model': modelId,
+          'messages': [
+            for (final m in messages) {'role': m.role, 'content': m.content},
+          ],
+          if (options.temperature != null) 'temperature': options.temperature,
+          if (options.topP != null) 'top_p': options.topP,
+          if (options.maxTokens != null) 'max_tokens': options.maxTokens,
+          if (options.stopSequences.isNotEmpty) 'stop': options.stopSequences,
+          if (options.seed != null) 'seed': options.seed,
+          if (options.jsonMode) 'response_format': {'type': 'json_object'},
+          if (toolSchemas.isNotEmpty)
+            'tools': [
+              for (final t in toolSchemas) {'type': 'function', 'function': t}
+            ],
+          'stream': supportsStreaming,
+          if (supportsStreaming) 'stream_options': {'include_usage': true},
+        };
+    }
 
     HttpClientResponse res;
     try {
       final req =
-          await _http.postUrl(_uri('chat/completions')).timeout(config.timeout);
+          await _http.postUrl(_uri(_generatePath)).timeout(config.timeout);
       for (final h in _authHeaders.entries) {
         req.headers.set(h.key, h.value);
       }
@@ -578,6 +759,23 @@ class OpenAiCompatibleProvider implements LlmProvider {
       // Resposta única REAL (sem streaming): um Delta + Done.
       final body = await _decodeUtf8Lenient(res);
       final decoded = (jsonDecode(body) as Map).cast<String, Object?>();
+      if (wire == OpenAiCompatWire.anthropicMessages) {
+        final u = (decoded['usage'] as Map?)?.cast<String, Object?>();
+        if (u != null) {
+          emit(UsageChunk(
+            promptTokens: (u['input_tokens'] as num?)?.toInt() ?? 0,
+            completionTokens: (u['output_tokens'] as num?)?.toInt() ?? 0,
+          ));
+        }
+        final blocks = decoded['content'] as List? ?? const [];
+        final text = blocks
+            .map((b) => (b as Map)['text'] as String?)
+            .whereType<String>()
+            .join();
+        if (text.isNotEmpty) emit(DeltaChunk(text));
+        emit(DoneChunk(decoded['stop_reason'] as String? ?? 'stop'));
+        return;
+      }
       final usage = (decoded['usage'] as Map?)?.cast<String, Object?>();
       if (usage != null) {
         emit(UsageChunk(
@@ -588,11 +786,98 @@ class OpenAiCompatibleProvider implements LlmProvider {
       final choices = decoded['choices'] as List? ?? const [];
       if (choices.isNotEmpty) {
         final c0 = (choices.first as Map).cast<String, Object?>();
-        final content = ((c0['message'] as Map?)?['content'] as String?) ?? '';
+        final content = wire == OpenAiCompatWire.textCompletions
+            ? (c0['text'] as String? ?? '')
+            : ((c0['message'] as Map?)?['content'] as String? ?? '');
         if (content.isNotEmpty) emit(DeltaChunk(content));
         emit(DoneChunk(c0['finish_reason'] as String? ?? 'stop'));
       } else {
         emit(const DoneChunk('stop'));
+      }
+      return;
+    }
+
+    // Wire Anthropic nativo (proxy/gateway): envelope SSE de eventos tipados
+    // (content_block_delta etc.), com os mesmos acumuladores do provider
+    // Anthropic real — nunca o parser OpenAI sobre payload Anthropic.
+    if (wire == OpenAiCompatWire.anthropicMessages) {
+      final blockTypes = <int, String>{};
+      final blockIds = <int, String>{};
+      final blockNames = <int, String>{};
+      final blockJson = <int, StringBuffer>{};
+      try {
+        await for (final line in _sseLines(res)) {
+          if (!line.startsWith('data:')) continue;
+          final payload = line.substring(5).trim();
+          if (payload.isEmpty) continue;
+          Map<String, Object?> ev;
+          try {
+            ev = (jsonDecode(payload) as Map).cast<String, Object?>();
+          } on FormatException {
+            continue; // SSE parcial/corrompido — ignora linha (real)
+          }
+          switch (ev['type'] as String?) {
+            case 'content_block_start':
+              final idx = (ev['index'] as num?)?.toInt() ?? 0;
+              final blk =
+                  (ev['content_block'] as Map?)?.cast<String, Object?>();
+              blockTypes[idx] = blk?['type'] as String? ?? 'text';
+              if (blockTypes[idx] == 'tool_use') {
+                blockIds[idx] = blk?['id'] as String? ?? '';
+                blockNames[idx] = blk?['name'] as String? ?? '';
+                blockJson[idx] = StringBuffer();
+              }
+            case 'content_block_delta':
+              final d = (ev['delta'] as Map?)?.cast<String, Object?>();
+              switch (d?['type'] as String?) {
+                case 'text_delta':
+                  final t = d!['text'] as String?;
+                  if (t != null && t.isNotEmpty) emit(DeltaChunk(t));
+                case 'input_json_delta':
+                  final idx = (ev['index'] as num?)?.toInt() ?? 0;
+                  blockJson[idx]?.write(d!['partial_json'] as String? ?? '');
+                case 'thinking_delta':
+                  break;
+              }
+            case 'content_block_stop':
+              final idx = (ev['index'] as num?)?.toInt() ?? 0;
+              if (blockTypes[idx] == 'tool_use') {
+                emit(ToolCallStartChunk(
+                  callId: blockIds[idx]?.isNotEmpty == true
+                      ? blockIds[idx]!
+                      : 'call_${DateTime.now().microsecondsSinceEpoch}',
+                  toolId: _normalizeToolId(
+                      blockNames[idx] ?? '', sentToolNames),
+                  argsJson: blockJson[idx]?.toString() ?? '{}',
+                ));
+              }
+            case 'message_delta':
+              final u = (ev['usage'] as Map?)?.cast<String, Object?>();
+              if (u != null) {
+                emit(UsageChunk(
+                  promptTokens: (u['input_tokens'] as num?)?.toInt() ?? 0,
+                  completionTokens: (u['output_tokens'] as num?)?.toInt() ?? 0,
+                ));
+              }
+            case 'message_stop':
+              emit(const DoneChunk('stop'));
+              return;
+            case 'error':
+              final err = (ev['error'] as Map?)?.cast<String, Object?>();
+              throw VtFailure(
+                code: VtErrorCode.internalError,
+                message:
+                    'Erro de streaming no gateway Anthropic: ${err?['type']}: ${err?['message']}',
+                retryable: true,
+              );
+          }
+        }
+        emit(const DoneChunk('stop'));
+      } on SocketException catch (e) {
+        throw VtFailure(
+            code: VtErrorCode.networkUnavailable,
+            message: 'Conexão de streaming interrompida: ${e.message}',
+            retryable: true);
       }
       return;
     }
@@ -622,6 +907,18 @@ class OpenAiCompatibleProvider implements LlmProvider {
         final choices = chunk['choices'] as List?;
         if (choices == null || choices.isEmpty) continue;
         final c0 = (choices.first as Map).cast<String, Object?>();
+        // Wire `/completions` legado: o texto incremental vem em `text`,
+        // não em `delta.content`. finish_reason/usage seguem o mesmo fluxo.
+        if (wire == OpenAiCompatWire.textCompletions) {
+          final t = c0['text'] as String?;
+          if (t != null && t.isNotEmpty) emit(DeltaChunk(t));
+          final fin = c0['finish_reason'] as String?;
+          if (fin != null) {
+            sawFinish = true;
+            finishReason = fin;
+          }
+          continue;
+        }
         final delta = (c0['delta'] as Map?)?.cast<String, Object?>();
         final content = delta?['content'] as String?;
         if (content != null && content.isNotEmpty) emit(DeltaChunk(content));
