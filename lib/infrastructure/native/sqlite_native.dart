@@ -43,10 +43,14 @@ typedef _ColTextC = Pointer<Utf8> Function(Pointer<Void>, Int32);
 typedef _ColTextDart = Pointer<Utf8> Function(Pointer<Void>, int);
 typedef _ColCountC = Int32 Function(Pointer<Void>);
 typedef _ColCountDart = int Function(Pointer<Void>);
+// sqlite3_bind_text(stmt, idx, text, nBytes, destruct) — o 4º parâmetro é o
+// destructor (SQLite_TRANSIENT = -1 como ponteiro), NÃO um argumento a menos.
+// Omiti-lo corrompia a pilha em chamadas FFI e causava segfault dentro de
+// libsqlite3 no primeiro step com parâmetros vinculados.
 typedef _BindTextC = Int32 Function(
-    Pointer<Void>, Int32, Pointer<Utf8>, Pointer<Void>);
+    Pointer<Void>, Int32, Pointer<Utf8>, Int32, Pointer<Void>);
 typedef _BindTextDart = int Function(
-    Pointer<Void>, int, Pointer<Utf8>, Pointer<Void>);
+    Pointer<Void>, int, Pointer<Utf8>, int, Pointer<Void>);
 typedef _ErrMsgC = Pointer<Utf8> Function(Pointer<Void>);
 typedef _ErrMsgDart = Pointer<Utf8> Function(Pointer<Void>);
 typedef _ChangesC = Int32 Function(Pointer<Void>);
@@ -55,7 +59,7 @@ typedef _ChangesDart = int Function(Pointer<Void>);
 const _sqliteOk = 0;
 const _sqliteRow = 100;
 const _sqliteDone = 101;
-const _sqliteTransient = 5;
+
 
 class SqliteException implements Exception {
   const SqliteException(this.code, this.message);
@@ -131,32 +135,36 @@ class SqliteDb {
       final stmt = stmtPtr.value;
       try {
         for (var i = 0; i < params.length; i++) {
-          final b = _bindText(
-              stmt, i + 1, params[i].toNativeUtf8(allocator: arena), nullptr);
-          if (b != _sqliteOk && b != _sqliteTransient) {
+          final text = params[i].toNativeUtf8(allocator: arena);
+          // nBytes em UTF-8 e SQLITE_TRANSIENT (-1): o SQLite copia o texto,
+          // então o buffer da arena pode morrer ao fim do `using`.
+          final b = _bindText(stmt, i + 1, text, -1, nullptr);
+          if (b != _sqliteOk) {
             throw SqliteException(b, _lastError());
           }
         }
         final cols = _colCount(stmt);
-        final names = <String>[];
-        try {
-          final nameFn = _lib.lookupFunction<
-              Pointer<Utf8> Function(Pointer<Void>, Int32),
-              Pointer<Utf8> Function(
-                  Pointer<Void>, int)>('sqlite3_column_name');
-          for (var c = 0; c < cols; c++) {
-            names.add(nameFn(stmt, c).toDartString());
-          }
-        } on ArgumentError {
-          for (var c = 0; c < cols; c++) {
-            names.add('$c');
-          }
-        }
+        // sqlite3_column_name só é seguro DEPOIS do primeiro sqlite3_step:
+        // em statements com bind de parâmetros, chamá-lo antes corrompe o
+        // buffer interno de nomes e o step seguinte segue ponteiro inválido
+        // (segfault real em libsqlite3 — reprodutível com `WHERE x=?`).
+        List<String>? names;
         final rows = <Map<String, Object?>>[];
         while (true) {
           final s = _step(stmt);
           if (s == _sqliteDone) break;
           if (s != _sqliteRow) throw SqliteException(s, _lastError());
+          names ??= () {
+            try {
+              final nameFn = _lib.lookupFunction<
+                  Pointer<Utf8> Function(Pointer<Void>, Int32),
+                  Pointer<Utf8> Function(
+                      Pointer<Void>, int)>('sqlite3_column_name');
+              return [for (var c = 0; c < cols; c++) nameFn(stmt, c).toDartString()];
+            } on ArgumentError {
+              return [for (var c = 0; c < cols; c++) '$c'];
+            }
+          }();
           final row = <String, Object?>{};
           for (var c = 0; c < cols; c++) {
             final t = _colText(stmt, c);
@@ -164,6 +172,9 @@ class SqliteDb {
           }
           rows.add(row);
         }
+        // statement sem linhas ainda precisa dos nomes p/ chamadores que só
+        // olham chaves; nunca chamado antes do step acima (regra de segurança).
+        names ??= const [];
         return rows;
       } finally {
         _finalize(stmt);
