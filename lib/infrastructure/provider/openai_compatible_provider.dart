@@ -182,12 +182,9 @@ class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   HttpClient get _http {
-    // encoding=null: respostas chegam como bytes crus. O default do
-    // HttpClient (latin-1 p/ text/*) corromperia UTF-8 multi-byte em SSE;
-    // a decodificação correta é feita por utf8ChunksIncremental/_sseLines.
-    return _client ??= HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15)
-      ..encoding = null;
+    // HttpClient não expõe encoding cru; o corpo é lido como
+    // Stream<List<int>> (bytes) e decodado por utf8ChunksIncremental/_sseLines.
+    return _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 15);
   }
 
   VtFailure? _preflight() {
@@ -676,8 +673,12 @@ class OpenAiCompatibleProvider implements LlmProvider {
           }
         }
       }
-      if (sawFinish) emit(DoneChunk(finishReason!));
-      else emit(const DoneChunk('stop'));
+      if (sawFinish) {
+        emit(DoneChunk(finishReason!));
+      }
+      else {
+        emit(const DoneChunk('stop'));
+      }
     } on SocketException catch (e) {
       // erro de stream é erro real
       throw VtFailure(
