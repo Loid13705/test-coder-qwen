@@ -36,9 +36,8 @@ enum VtErrorCode {
   const VtErrorCode(this.wire);
   final String wire;
 
-  static VtErrorCode fromWire(String w) =>
-      VtErrorCode.values.firstWhere((e) => e.wire == w,
-          orElse: () => VtErrorCode.internalError);
+  static VtErrorCode fromWire(String w) => VtErrorCode.values
+      .firstWhere((e) => e.wire == w, orElse: () => VtErrorCode.internalError);
 }
 
 /// Ação concreta sugerida ao usuário quando algo está bloqueado.
@@ -124,7 +123,9 @@ class VtFailure implements Exception {
         setupUri: 'techvt://settings/providers/$providerId/key',
         recoveryActions: const [
           RecoveryAction(
-              kind: 'add_api_key', label: 'Adicionar API key', target: 'aiProviders'),
+              kind: 'add_api_key',
+              label: 'Adicionar API key',
+              target: 'aiProviders'),
         ],
       );
 
@@ -158,7 +159,8 @@ class VtFailure implements Exception {
         message: 'Permissão negada para acessar "$path".',
         recoveryActions: const [
           RecoveryAction(
-              kind: 'authorize_folder', label: 'Autorizar pasta via grant de permissão'),
+              kind: 'authorize_folder',
+              label: 'Autorizar pasta via grant de permissão'),
         ],
       );
 
@@ -179,14 +181,16 @@ class VtFailure implements Exception {
         recoveryActions: [
           RecoveryAction(
               kind: 'allow_domain',
-              label: 'Permitir domínio em Settings → Security → Network allowlist',
+              label:
+                  'Permitir domínio em Settings → Security → Network allowlist',
               target: 'security'),
         ],
       );
 
   factory VtFailure.rateLimited(String source) => VtFailure(
         code: VtErrorCode.rateLimited,
-        message: 'Rate limit atingido em "$source". Aguarde o backoff indicado.',
+        message:
+            'Rate limit atingido em "$source". Aguarde o backoff indicado.',
         retryable: true,
         recoveryActions: const [
           RecoveryAction(kind: 'retry', label: 'Tentar novamente mais tarde'),
@@ -202,7 +206,8 @@ class VtFailure implements Exception {
         recoveryActions: const [
           RecoveryAction(kind: 'retry', label: 'Tentar novamente'),
           RecoveryAction(
-              kind: 'open_settings', label: 'Aumentar timeout em Settings → Tools'),
+              kind: 'open_settings',
+              label: 'Aumentar timeout em Settings → Tools'),
         ],
       );
 
@@ -211,7 +216,8 @@ class VtFailure implements Exception {
         message: 'Rede indisponível.${detail ?? ''}',
         retryable: true,
         recoveryActions: const [
-          RecoveryAction(kind: 'retry', label: 'Verificar conexão e tentar novamente'),
+          RecoveryAction(
+              kind: 'retry', label: 'Verificar conexão e tentar novamente'),
           RecoveryAction(
               kind: 'open_settings',
               label: 'Revisar proxy em Settings → AI Providers',
@@ -224,7 +230,8 @@ class VtFailure implements Exception {
         message:
             'O modelo "$modelId" não suporta tool calling; Agent mode está bloqueado.',
         recoveryActions: const [
-          RecoveryAction(kind: 'switch_model', label: 'Trocar para um modelo com tools'),
+          RecoveryAction(
+              kind: 'switch_model', label: 'Trocar para um modelo com tools'),
         ],
       );
 

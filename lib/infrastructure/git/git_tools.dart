@@ -14,7 +14,6 @@ import '../../domain/models/pagination.dart';
 import '../../domain/tools/tool_contract.dart';
 import '../process/process_utils.dart';
 
-
 /// Conta linhas de adição/remoção reais de um diff unificado (ignora headers +++/---).
 int _countLines(String diff, String sign) {
   var n = 0;
@@ -60,8 +59,8 @@ abstract class _GitToolBase extends VtTool<MapToolInput, TextOutput> {
   /// Working dir real: raiz do workspace (sandbox aplicado pelo runtime).
   String repoRoot(ToolContext ctx) => ctx.workspaceRoots.first;
 
-  Future<ProcessResult> runGit(
-      ToolContext ctx, List<String> args, {String? cwd}) async {
+  Future<ProcessResult> runGit(ToolContext ctx, List<String> args,
+      {String? cwd}) async {
     final git = await resolveGit(ctx);
     if (git == null) throw VtFailure.binaryMissing('git');
     try {
@@ -75,7 +74,9 @@ abstract class _GitToolBase extends VtTool<MapToolInput, TextOutput> {
   }
 
   VtFailure failureFrom(ProcessResult res, String verb) => VtFailure(
-        code: res.exitCode == 128 ? VtErrorCode.validationFailed : VtErrorCode.internalError,
+        code: res.exitCode == 128
+            ? VtErrorCode.validationFailed
+            : VtErrorCode.internalError,
         message: 'git $verb falhou (exit ${res.exitCode}): '
             '${(res.stderr as String?)?.trim() ?? ''}',
         details: {'exitCode': res.exitCode, 'stderr': res.stderr},
@@ -104,16 +105,19 @@ class GitStatusTool extends _GitToolBase {
   @override
   String get title => 'Git status';
   @override
-  String get description => 'Status real do working tree (porcelain v2 + branch).';
+  String get description =>
+      'Status real do working tree (porcelain v2 + branch).';
   @override
   RiskLevel get risk => RiskLevel.readOnly;
   @override
   ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.auto;
   @override
-  Map<String, Object?> get inputSchema => const {'type': 'object', 'properties': {}};
+  Map<String, Object?> get inputSchema =>
+      const {'type': 'object', 'properties': {}};
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final st = await runGit(ctx, ['status', '--porcelain=v2', '--branch']);
       if (st.exitCode != 0) return ToolFailureResult(failureFrom(st, 'status'));
@@ -152,7 +156,8 @@ class GitDiffTool extends _GitToolBase {
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final args = <String>['diff', '--unified=3'];
       if (input.boolOf('staged')) args.add('--cached');
@@ -213,7 +218,8 @@ class GitLogTool extends _GitToolBase {
   static const _field = '\x1f'; // unit separator
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final limit = input.intOrNull('limit') ?? kDefaultPageSizeGitLog;
       final skip = input.intOrNull('skip') ?? 0;
@@ -223,7 +229,9 @@ class GitLogTool extends _GitToolBase {
         '--max-count=${limit + 1}',
         '--skip=$skip',
       ];
-      if (input.str('author').isNotEmpty) args.add('--author=${input.str('author')}');
+      if (input.str('author').isNotEmpty) {
+        args.add('--author=${input.str('author')}');
+      }
       if (input.str('pathFilter').isNotEmpty) {
         args.addAll(['--', input.str('pathFilter')]);
       }
@@ -244,8 +252,11 @@ class GitLogTool extends _GitToolBase {
         };
       }).toList();
       return ToolSuccess(
-          data: TextOutput(jsonEncode(page),
-              metadata: {'hasMore': hasMore, 'offset': skip, 'pageSize': limit}));
+          data: TextOutput(jsonEncode(page), metadata: {
+        'hasMore': hasMore,
+        'offset': skip,
+        'pageSize': limit
+      }));
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
     }
@@ -268,11 +279,14 @@ class GitShowTool extends _GitToolBase {
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
         'required': ['ref'],
-        'properties': {'ref': {'type': 'string'}},
+        'properties': {
+          'ref': {'type': 'string'}
+        },
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final res = await runGit(ctx, ['show', '--stat', input.str('ref')]);
       if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'show'));
@@ -298,18 +312,23 @@ class GitBranchListTool extends _GitToolBase {
   @override
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
-        'properties': {'all': {'type': 'boolean'}},
+        'properties': {
+          'all': {'type': 'boolean'}
+        },
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final res = await runGit(ctx, [
         'branch',
         if (input.boolOf('all')) '-a',
         '--format=%(refname)%09%(HEAD)%09%(objectname:short)',
       ]);
-      if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'branch'));
+      if (res.exitCode != 0) {
+        return ToolFailureResult(failureFrom(res, 'branch'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -324,7 +343,8 @@ class GitBranchCreateTool extends _GitToolBase {
   @override
   String get title => 'Create branch';
   @override
-  String get description => 'Cria branch real (aprovação exigida: local_write).';
+  String get description =>
+      'Cria branch real (aprovação exigida: local_write).';
   @override
   RiskLevel get risk => RiskLevel.localWrite;
   @override
@@ -342,17 +362,21 @@ class GitBranchCreateTool extends _GitToolBase {
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final name = input.str('name');
       if (!RegExp(r'^[\w./-]+$').hasMatch(name)) {
         return ToolFailureResult(VtFailure(
-            code: VtErrorCode.validationFailed, message: 'Nome de branch inválido: $name'));
+            code: VtErrorCode.validationFailed,
+            message: 'Nome de branch inválido: $name'));
       }
       final args = <String>['branch', name];
       if (input.str('startPoint').isNotEmpty) args.add(input.str('startPoint'));
       final res = await runGit(ctx, args);
-      if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'branch create'));
+      if (res.exitCode != 0) {
+        return ToolFailureResult(failureFrom(res, 'branch create'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -372,7 +396,8 @@ class GitBranchDeleteTool extends _GitToolBase {
   @override
   RiskLevel get risk => RiskLevel.destructive;
   @override
-  ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.typedConfirmation;
+  ApprovalPolicyMode get defaultApproval =>
+      ApprovalPolicyMode.typedConfirmation;
   @override
   bool get isIdempotent => false;
   @override
@@ -386,12 +411,12 @@ class GitBranchDeleteTool extends _GitToolBase {
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final merged = await runGit(ctx, ['branch', '--merged']);
-      final isMerged = (merged.stdout as String)
-          .split('\n')
-          .any((l) => l.trim().replaceAll(RegExp(r'^[* ]+'), '') == input.str('name'));
+      final isMerged = (merged.stdout as String).split('\n').any((l) =>
+          l.trim().replaceAll(RegExp(r'^[* ]+'), '') == input.str('name'));
       if (!isMerged && !input.boolOf('force')) {
         return ToolFailureResult(VtFailure(
           code: VtErrorCode.validationFailed,
@@ -399,9 +424,11 @@ class GitBranchDeleteTool extends _GitToolBase {
               'Branch "${input.str('name')}" não está mesclado. Force delete exige confirmação explícita.',
         ));
       }
-      final res = await runGit(
-          ctx, ['branch', input.boolOf('force') ? '-D' : '-d', input.str('name')]);
-      if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'branch delete'));
+      final res = await runGit(ctx,
+          ['branch', input.boolOf('force') ? '-D' : '-d', input.str('name')]);
+      if (res.exitCode != 0) {
+        return ToolFailureResult(failureFrom(res, 'branch delete'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -435,13 +462,15 @@ class GitCheckoutTool extends _GitToolBase {
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final dirty = await runGit(ctx, ['status', '--porcelain']);
       if ((dirty.stdout as String).trim().isNotEmpty) {
         return ToolFailureResult(VtFailure(
           code: VtErrorCode.validationFailed,
-          message: 'Working tree sujo — faça stash ou commit antes do checkout. '
+          message:
+              'Working tree sujo — faça stash ou commit antes do checkout. '
               'Arquivos alterados: ${(dirty.stdout as String).split('\n').length}.',
           details: {'dirtyFiles': (dirty.stdout as String).split('\n')},
         ));
@@ -450,7 +479,9 @@ class GitCheckoutTool extends _GitToolBase {
           ? ['checkout', '-b', input.str('target')]
           : ['checkout', input.str('target')];
       final res = await runGit(ctx, args);
-      if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'checkout'));
+      if (res.exitCode != 0) {
+        return ToolFailureResult(failureFrom(res, 'checkout'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -465,7 +496,8 @@ class GitStageTool extends _GitToolBase {
   @override
   String get title => 'Stage files';
   @override
-  String get description => 'Stageia arquivos reais (git add). Stage de hunk usa apply --cached.';
+  String get description =>
+      'Stageia arquivos reais (git add). Stage de hunk usa apply --cached.';
   @override
   RiskLevel get risk => RiskLevel.localWrite;
   @override
@@ -475,17 +507,21 @@ class GitStageTool extends _GitToolBase {
         'type': 'object',
         'required': ['paths'],
         'properties': {
-          'paths': {'type': 'array', 'items': {'type': 'string'}},
+          'paths': {
+            'type': 'array',
+            'items': {'type': 'string'}
+          },
           'patch': {'type': 'string'},
         },
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       if (input.str('patch').isNotEmpty) {
-        final proc = await Process.start(
-            (await resolveGit(ctx))!, ['-C', repoRoot(ctx), 'apply', '--cached']);
+        final proc = await Process.start((await resolveGit(ctx))!,
+            ['-C', repoRoot(ctx), 'apply', '--cached']);
         proc.stdin.write(input.str('patch'));
         await proc.stdin.close();
         final out = await proc.stdout.transform(utf8.decoder).join();
@@ -497,12 +533,14 @@ class GitStageTool extends _GitToolBase {
               message: 'git apply --cached falhou: $err',
               details: {'stdout': out}));
         }
-        return ToolSuccess(data: TextOutput(out, metadata: {'mode': 'hunk-patch'}));
+        return ToolSuccess(
+            data: TextOutput(out, metadata: {'mode': 'hunk-patch'}));
       }
       final paths = input.list('paths');
       if (paths.isEmpty) {
         return ToolFailureResult(VtFailure(
-            code: VtErrorCode.validationFailed, message: 'Lista de paths vazia.'));
+            code: VtErrorCode.validationFailed,
+            message: 'Lista de paths vazia.'));
       }
       final res = await runGit(ctx, ['add', '--', ...paths]);
       if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'add'));
@@ -530,15 +568,22 @@ class GitUnstageTool extends _GitToolBase {
         'type': 'object',
         'required': ['paths'],
         'properties': {
-          'paths': {'type': 'array', 'items': {'type': 'string'}}
+          'paths': {
+            'type': 'array',
+            'items': {'type': 'string'}
+          }
         },
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
-      final res = await runGit(ctx, ['restore', '--staged', '--', ...input.list('paths')]);
-      if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'restore --staged'));
+      final res = await runGit(
+          ctx, ['restore', '--staged', '--', ...input.list('paths')]);
+      if (res.exitCode != 0) {
+        return ToolFailureResult(failureFrom(res, 'restore --staged'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -572,17 +617,21 @@ class GitCommitTool extends _GitToolBase {
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final msg = input.str('message');
       if (msg.trim().isEmpty) {
         return ToolFailureResult(VtFailure(
-            code: VtErrorCode.validationFailed, message: 'Mensagem de commit vazia.'));
+            code: VtErrorCode.validationFailed,
+            message: 'Mensagem de commit vazia.'));
       }
       final args = <String>['commit', '-m', msg];
       if (input.boolOf('allowEmpty')) args.add('--allow-empty');
       final res = await runGit(ctx, args);
-      if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'commit'));
+      if (res.exitCode != 0) {
+        return ToolFailureResult(failureFrom(res, 'commit'));
+      }
       final sha = await runGit(ctx, ['rev-parse', 'HEAD']);
       return success(res, extra: {'commitSha': (sha.stdout as String).trim()});
     } on VtFailure catch (f) {
@@ -617,7 +666,8 @@ class GitPushTool extends _GitToolBase {
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final args = <String>['push'];
       if (input.boolOf('setUpstream')) args.add('-u');
@@ -639,7 +689,8 @@ class GitPullTool extends _GitToolBase {
   @override
   String get title => 'Pull';
   @override
-  String get description => 'Pull real (merge ou rebase); conflitos retornam erro tipado com lista real.';
+  String get description =>
+      'Pull real (merge ou rebase); conflitos retornam erro tipado com lista real.';
   @override
   RiskLevel get risk => RiskLevel.localWrite;
   @override
@@ -649,17 +700,24 @@ class GitPullTool extends _GitToolBase {
   @override
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
-        'properties': {'rebase': {'type': 'boolean'}},
+        'properties': {
+          'rebase': {'type': 'boolean'}
+        },
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
-      final res = await runGit(
-          ctx, ['pull', if (input.boolOf('rebase')) '--rebase' else '--no-rebase']);
+      final res = await runGit(ctx,
+          ['pull', if (input.boolOf('rebase')) '--rebase' else '--no-rebase']);
       if (res.exitCode != 0) {
-        final conflicts = await runGit(ctx, ['diff', '--name-only', '--diff-filter=U']);
-        final list = (conflicts.stdout as String).split('\n').where((s) => s.isNotEmpty).toList();
+        final conflicts =
+            await runGit(ctx, ['diff', '--name-only', '--diff-filter=U']);
+        final list = (conflicts.stdout as String)
+            .split('\n')
+            .where((s) => s.isNotEmpty)
+            .toList();
         return ToolFailureResult(VtFailure(
           code: VtErrorCode.validationFailed,
           message: list.isEmpty
@@ -667,7 +725,8 @@ class GitPullTool extends _GitToolBase {
               : 'Conflitos reais de merge em ${list.length} arquivo(s).',
           details: {'conflicts': list},
           recoveryActions: const [
-            RecoveryAction(kind: 'open_logs', label: 'Resolver conflitos no Review Mode')
+            RecoveryAction(
+                kind: 'open_logs', label: 'Resolver conflitos no Review Mode')
           ],
         ));
       }
@@ -693,18 +752,24 @@ class GitFetchTool extends _GitToolBase {
   @override
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
-        'properties': {'remote': {'type': 'string'}, 'prune': {'type': 'boolean'}},
+        'properties': {
+          'remote': {'type': 'string'},
+          'prune': {'type': 'boolean'}
+        },
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final res = await runGit(ctx, [
         'fetch',
         if (input.boolOf('prune')) '--prune',
         if (input.str('remote').isNotEmpty) input.str('remote'),
       ]);
-      if (res.exitCode != 0) return ToolFailureResult(failureFrom(res, 'fetch'));
+      if (res.exitCode != 0) {
+        return ToolFailureResult(failureFrom(res, 'fetch'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -731,33 +796,60 @@ class GitStashTool extends _GitToolBase {
         'type': 'object',
         'required': ['action'],
         'properties': {
-          'action': {'type': 'string', 'enum': ['push', 'pop', 'apply', 'list']},
+          'action': {
+            'type': 'string',
+            'enum': ['push', 'pop', 'apply', 'list']
+          },
           'message': {'type': 'string'},
           'index': {'type': 'integer'},
         },
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) async {
+  Future<ToolResult<TextOutput>> execute(
+      ToolContext ctx, MapToolInput input) async {
     try {
       final action = input.str('action');
       final args = switch (action) {
-        'push' => ['stash', 'push', '-m', input.str('message').isEmpty ? 'techVT checkpoint' : input.str('message')],
-        'pop' => ['stash', 'pop', if (input.intOrNull('index') != null) 'stash@{${input.intOrNull('index')}}'],
-        'apply' => ['stash', 'apply', if (input.intOrNull('index') != null) 'stash@{${input.intOrNull('index')}}'],
+        'push' => [
+            'stash',
+            'push',
+            '-m',
+            input.str('message').isEmpty
+                ? 'techVT checkpoint'
+                : input.str('message')
+          ],
+        'pop' => [
+            'stash',
+            'pop',
+            if (input.intOrNull('index') != null)
+              'stash@{${input.intOrNull('index')}}'
+          ],
+        'apply' => [
+            'stash',
+            'apply',
+            if (input.intOrNull('index') != null)
+              'stash@{${input.intOrNull('index')}}'
+          ],
         'list' => ['stash', 'list'],
         _ => throw VtFailure(
-              code: VtErrorCode.validationFailed,
-              message: 'Ação de stash desconhecida: "$action" (use push|pop|apply|list).'),
+            code: VtErrorCode.validationFailed,
+            message:
+                'Ação de stash desconhecida: "$action" (use push|pop|apply|list).'),
       };
       final res = await runGit(ctx, args.whereType<String>().toList());
       if (res.exitCode != 0) {
-        final conflicts = await runGit(ctx, ['diff', '--name-only', '--diff-filter=U']);
-        final list = (conflicts.stdout as String).split('\n').where((s) => s.isNotEmpty).toList();
+        final conflicts =
+            await runGit(ctx, ['diff', '--name-only', '--diff-filter=U']);
+        final list = (conflicts.stdout as String)
+            .split('\n')
+            .where((s) => s.isNotEmpty)
+            .toList();
         if (list.isNotEmpty) {
           return ToolFailureResult(VtFailure(
             code: VtErrorCode.validationFailed,
-            message: 'Stash aplicado com conflitos reais em ${list.length} arquivo(s).',
+            message:
+                'Stash aplicado com conflitos reais em ${list.length} arquivo(s).',
             details: {'conflicts': list},
           ));
         }

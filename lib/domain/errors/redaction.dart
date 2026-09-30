@@ -6,32 +6,30 @@ class SecretRedactor {
   const SecretRedactor();
 
   static final _privateKey = RegExp(
-      '(?i)-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY -----'
-      '[\\s\\S]*?-----END (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY -----');
+      r'''-----BEGIN ((RSA |EC |OPENSSH |PGP )?PRIVATE KEY)-----[\s\S]*?-----END ((RSA |EC |OPENSSH |PGP )?PRIVATE KEY)-----''');
 
   static final _bearer = RegExp(
-      '(?i)(authorization\\s*[:=]\\s*)bearer\\s+[a-z0-9._\\-]+');
+      r'(authorization\s*[:=]\s*)bearer\s+[a-z0-9._\-]+',
+      caseSensitive: false);
 
   // key = "value" | key = 'value' | key = bareword
   static final _kv = RegExp(
-      '(?i)'
-      '\\b(password|passwd|secret|api[_-]?key|access[_-]?token|client[_-]?secret)\\b'
-      '\\s*[:=]\\s*'
-      '(' + '"' + '[^"' + '"]*"|\'[^\']*\'|\\S+)');
+      r'\b(password|passwd|secret|api[_-]?key|access[_-]?token|client[_-]?secret)\b'
+      r'''\s*[:=]\s*("[^"]*"|'[^']*'|\S+)''',
+      caseSensitive: false);
 
-  static final _urlAuth = RegExp('(?i)(https?://)[^\\s/:@]+:[^\\s@]+@');
+  static final _urlAuth =
+      RegExp(r'(https?://)[^\s/:@]+:[^\s@]+@', caseSensitive: false);
 
-  static const _singleTokenPatterns = <String, Pattern>{
-    'aws_key': r'\bAKIA[0-9A-Z]{16}\b',
-    'openai_key': r'\bsk-[A-Za-z0-9_\-]{16,}\b',
-    'github_token': r'\bgh[pousr]_[A-Za-z0-9]{20,}\b',
-    'slack_token': r'\bxox[baprs]-[A-Za-z0-9\-]{10,}\b',
-    'google_key': r'\bAIza[0-9A-Za-z_\-]{30,}\b',
-    'jwt': r'\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{5,}\b',
+  static final _tokenPatterns = <String, RegExp>{
+    'aws_key': RegExp(r'\bAKIA[0-9A-Z]{16}\b'),
+    'openai_key': RegExp(r'\bsk-[A-Za-z0-9_\-]{16,}\b'),
+    'github_token': RegExp(r'\bgh[pousr]_[A-Za-z0-9]{20,}\b'),
+    'slack_token': RegExp(r'\bxox[baprs]-[A-Za-z0-9\-]{10,}\b'),
+    'google_key': RegExp(r'\bAIza[0-9A-Za-z_\-]{30,}\b'),
+    'jwt': RegExp(
+        r'\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{5,}\b'),
   };
-
-  static final _compiledTokens = _singleTokenPatterns.map(
-      (name, pattern) => MapEntry(name, RegExp(pattern as String)));
 
   /// Retorna o texto com segredos redigidos.
   String redact(String input) {
@@ -39,9 +37,8 @@ class SecretRedactor {
         input.replaceAllMapped(_privateKey, (m) => '[REDACTED:private_key]');
     out = out.replaceAllMapped(
         _bearer, (m) => '${m.group(1)}Bearer [REDACTED:token]');
-    for (final entry in _compiledTokens.entries) {
-      out = out.replaceAllMapped(
-          entry.value, (m) => '[REDACTED:${entry.key}]');
+    for (final entry in _tokenPatterns.entries) {
+      out = out.replaceAllMapped(entry.value, (m) => '[REDACTED:${entry.key}]');
     }
     out = out.replaceAllMapped(
         _kv, (m) => '${m.group(1)}=[REDACTED:${m.group(1)}]');
@@ -57,7 +54,7 @@ class SecretRedactor {
     if (_bearer.hasMatch(input)) found.add('bearer');
     if (_kv.hasMatch(input)) found.add('kv_secret');
     if (_urlAuth.hasMatch(input)) found.add('url_basic_auth');
-    for (final entry in _compiledTokens.entries) {
+    for (final entry in _tokenPatterns.entries) {
       if (entry.value.hasMatch(input)) found.add(entry.key);
     }
     return found;

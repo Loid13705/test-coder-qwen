@@ -111,7 +111,8 @@ class Conversation {
         workspaceId: j['workspaceId'] as String? ?? '',
         title: j['title'] as String,
         parentId: j['parentId'] as String?,
-        status: ConversationStatus.values.byName(j['status'] as String? ?? 'active'),
+        status: ConversationStatus.values
+            .byName(j['status'] as String? ?? 'active'),
         createdAt: DateTime.parse(j['createdAt'] as String),
         updatedAt: DateTime.parse(j['updatedAt'] as String),
         pinned: j['pinned'] as bool? ?? false,
@@ -233,15 +234,23 @@ class DiffBlock extends MessageBlock {
 }
 
 class ToolCallBlock extends MessageBlock {
-  const ToolCallBlock({required this.toolCallId, required this.toolId, required this.statusWire});
+  const ToolCallBlock(
+      {required this.toolCallId,
+      required this.toolId,
+      required this.statusWire});
   final String toolCallId;
   final String toolId;
-  final String statusWire; // ToolCallStatus.wire — resolvido no application layer
+  final String
+      statusWire; // ToolCallStatus.wire — resolvido no application layer
   @override
   String get kind => 'tool_call';
   @override
-  Map<String, Object?> toJson() =>
-      {'kind': kind, 'toolCallId': toolCallId, 'toolId': toolId, 'status': statusWire};
+  Map<String, Object?> toJson() => {
+        'kind': kind,
+        'toolCallId': toolCallId,
+        'toolId': toolId,
+        'status': statusWire
+      };
   static ToolCallBlock fromJson(Map<String, Object?> j) => ToolCallBlock(
         toolCallId: j['toolCallId'] as String? ?? '',
         toolId: j['toolId'] as String? ?? '',
@@ -250,7 +259,10 @@ class ToolCallBlock extends MessageBlock {
 }
 
 class ApprovalBlock extends MessageBlock {
-  const ApprovalBlock({required this.approvalRequestId, required this.title, required this.riskWire});
+  const ApprovalBlock(
+      {required this.approvalRequestId,
+      required this.title,
+      required this.riskWire});
   final String approvalRequestId;
   final String title;
   final String riskWire;
@@ -271,16 +283,23 @@ class ApprovalBlock extends MessageBlock {
 }
 
 class ArtifactBlock extends MessageBlock {
-  const ArtifactBlock({required this.kindOf, required this.pathOrUri, required this.exists});
-  final String kindOf; // report|screenshot|trace|coverage|build_output|scene_json|bug_report
+  const ArtifactBlock(
+      {required this.kindOf, required this.pathOrUri, required this.exists});
+  final String
+      kindOf; // report|screenshot|trace|coverage|build_output|scene_json|bug_report
   final String pathOrUri;
+
   /// Verificação real de existência no momento da criação do bloco.
   final bool exists;
   @override
   String get kind => 'artifact';
   @override
-  Map<String, Object?> toJson() =>
-      {'kind': kind, 'artifactKind': kindOf, 'pathOrUri': pathOrUri, 'exists': exists};
+  Map<String, Object?> toJson() => {
+        'kind': kind,
+        'artifactKind': kindOf,
+        'pathOrUri': pathOrUri,
+        'exists': exists
+      };
   static ArtifactBlock fromJson(Map<String, Object?> j) => ArtifactBlock(
         kindOf: j['artifactKind'] as String? ?? '',
         pathOrUri: j['pathOrUri'] as String? ?? '',
@@ -322,7 +341,11 @@ class CitationBlock extends MessageBlock {
 }
 
 class ImageBlock extends MessageBlock {
-  const ImageBlock({required this.pathOrUrl, required this.localExists, this.widthPx, this.heightPx});
+  const ImageBlock(
+      {required this.pathOrUrl,
+      required this.localExists,
+      this.widthPx,
+      this.heightPx});
   final String pathOrUrl;
   final bool localExists;
   final int? widthPx;
@@ -346,7 +369,8 @@ class ImageBlock extends MessageBlock {
 }
 
 class FileBlock extends MessageBlock {
-  const FileBlock({required this.path, required this.sizeBytes, required this.exists});
+  const FileBlock(
+      {required this.path, required this.sizeBytes, required this.exists});
   final String path;
   final int sizeBytes;
   final bool exists;
@@ -363,7 +387,11 @@ class FileBlock extends MessageBlock {
 }
 
 class TerminalBlock extends MessageBlock {
-  const TerminalBlock({required this.sessionId, required this.command, required this.exitCode, required this.outputTail});
+  const TerminalBlock(
+      {required this.sessionId,
+      required this.command,
+      required this.exitCode,
+      required this.outputTail});
   final String sessionId;
   final String command;
   final int? exitCode;
@@ -388,6 +416,7 @@ class TerminalBlock extends MessageBlock {
 
 class ErrorBlock extends MessageBlock {
   const ErrorBlock(this.failureJson);
+
   /// VtFailure.toJson() — código tipado + ação concreta, nunca texto inventado.
   final Map<String, Object?> failureJson;
   @override
@@ -399,9 +428,11 @@ class ErrorBlock extends MessageBlock {
 }
 
 class PlanBlock extends MessageBlock {
-  const PlanBlock({required this.planId, required this.objective, required this.steps});
+  const PlanBlock(
+      {required this.planId, required this.objective, required this.steps});
   final String planId;
   final String objective;
+
   /// [{index, title, status}] — status real por passo (PlanStepStatus.wire).
   final List<Map<String, Object?>> steps;
   @override
@@ -412,12 +443,16 @@ class PlanBlock extends MessageBlock {
   static PlanBlock fromJson(Map<String, Object?> j) => PlanBlock(
         planId: j['planId'] as String? ?? '',
         objective: j['objective'] as String? ?? '',
-        steps: [for (final s in (j['steps'] as List? ?? const [])) (s as Map).cast<String, Object?>()],
+        steps: [
+          for (final s in (j['steps'] as List? ?? const []))
+            (s as Map).cast<String, Object?>()
+        ],
       );
 }
 
 class TaskBlock extends MessageBlock {
-  const TaskBlock({required this.taskId, required this.title, required this.statusWire});
+  const TaskBlock(
+      {required this.taskId, required this.title, required this.statusWire});
   final String taskId;
   final String title;
   final String statusWire;
@@ -434,15 +469,20 @@ class TaskBlock extends MessageBlock {
 }
 
 class MemoryBlock extends MessageBlock {
-  const MemoryBlock({required this.memoryId, required this.type, required this.sourcesCount});
+  const MemoryBlock(
+      {required this.memoryId, required this.type, required this.sourcesCount});
   final String memoryId;
   final String type; // conversation|project|user|episodic|semantic
   final int sourcesCount;
   @override
   String get kind => 'memory';
   @override
-  Map<String, Object?> toJson() =>
-      {'kind': kind, 'memoryId': memoryId, 'type': type, 'sourcesCount': sourcesCount};
+  Map<String, Object?> toJson() => {
+        'kind': kind,
+        'memoryId': memoryId,
+        'type': type,
+        'sourcesCount': sourcesCount
+      };
   static MemoryBlock fromJson(Map<String, Object?> j) => MemoryBlock(
         memoryId: j['memoryId'] as String? ?? '',
         type: j['type'] as String? ?? '',
@@ -451,17 +491,23 @@ class MemoryBlock extends MessageBlock {
 }
 
 class CostBlock extends MessageBlock {
-  const CostBlock({required this.usage, required this.modelId, required this.currency});
+  const CostBlock(
+      {required this.usage, required this.modelId, required this.currency});
   final TokenUsage usage;
   final String modelId;
   final String currency;
   @override
   String get kind => 'cost';
   @override
-  Map<String, Object?> toJson() =>
-      {'kind': kind, 'usage': usage.toJson(), 'modelId': modelId, 'currency': currency};
+  Map<String, Object?> toJson() => {
+        'kind': kind,
+        'usage': usage.toJson(),
+        'modelId': modelId,
+        'currency': currency
+      };
   static CostBlock fromJson(Map<String, Object?> j) => CostBlock(
-        usage: TokenUsage.fromJson((j['usage'] as Map?)?.cast<String, Object?>() ?? const {}),
+        usage: TokenUsage.fromJson(
+            (j['usage'] as Map?)?.cast<String, Object?>() ?? const {}),
         modelId: j['modelId'] as String? ?? '',
         currency: j['currency'] as String? ?? 'USD',
       );
@@ -562,7 +608,8 @@ class Message {
           for (final b in (j['blocks'] as List? ?? const []))
             blockFromJson((b as Map).cast<String, Object?>())
         ],
-        status: MessageStatus.values.byName(j['status'] as String? ?? 'completed'),
+        status:
+            MessageStatus.values.byName(j['status'] as String? ?? 'completed'),
         usage: j['usage'] != null
             ? TokenUsage.fromJson((j['usage'] as Map).cast<String, Object?>())
             : null,
@@ -612,11 +659,15 @@ class AgentPlanStep {
   factory AgentPlanStep.fromJson(Map<String, Object?> j) => AgentPlanStep(
         index: (j['index'] as num).toInt(),
         title: j['title'] as String? ?? '',
-        status: PlanStepStatus.values
-            .firstWhere((s) => s.wire == j['status'], orElse: () => PlanStepStatus.pending),
-        dependsOn: [for (final d in (j['dependsOn'] as List? ?? const [])) (d as num).toInt()],
+        status: PlanStepStatus.values.firstWhere((s) => s.wire == j['status'],
+            orElse: () => PlanStepStatus.pending),
+        dependsOn: [
+          for (final d in (j['dependsOn'] as List? ?? const []))
+            (d as num).toInt()
+        ],
         toolIds: (j['toolIds'] as List?)?.cast<String>() ?? const [],
-        acceptanceCriteria: (j['acceptanceCriteria'] as List?)?.cast<String>() ?? const [],
+        acceptanceCriteria:
+            (j['acceptanceCriteria'] as List?)?.cast<String>() ?? const [],
       );
 }
 
@@ -669,10 +720,13 @@ class AgentPlan {
         agentRunId: j['agentRunId'] as String? ?? '',
         objective: j['objective'] as String? ?? '',
         hypotheses: (j['hypotheses'] as List?)?.cast<String>() ?? const [],
-        affectedFiles: (j['affectedFiles'] as List?)?.cast<String>() ?? const [],
-        requiredTools: (j['requiredTools'] as List?)?.cast<String>() ?? const [],
+        affectedFiles:
+            (j['affectedFiles'] as List?)?.cast<String>() ?? const [],
+        requiredTools:
+            (j['requiredTools'] as List?)?.cast<String>() ?? const [],
         risks: (j['risks'] as List?)?.cast<String>() ?? const [],
-        acceptanceCriteria: (j['acceptanceCriteria'] as List?)?.cast<String>() ?? const [],
+        acceptanceCriteria:
+            (j['acceptanceCriteria'] as List?)?.cast<String>() ?? const [],
         steps: [
           for (final s in (j['steps'] as List? ?? const []))
             AgentPlanStep.fromJson((s as Map).cast<String, Object?>())
@@ -745,8 +799,8 @@ class AgentRun {
         mode: j['mode'] as String? ?? '',
         posture: j['posture'] as String? ?? '',
         approvalPosture: j['approvalPosture'] as String? ?? '',
-        state: AgentRunState.values.firstWhere(
-            (s) => s.wire == j['state'], orElse: () => AgentRunState.idle),
+        state: AgentRunState.values.firstWhere((s) => s.wire == j['state'],
+            orElse: () => AgentRunState.idle),
         plan: j['plan'] != null
             ? AgentPlan.fromJson((j['plan'] as Map).cast<String, Object?>())
             : null,

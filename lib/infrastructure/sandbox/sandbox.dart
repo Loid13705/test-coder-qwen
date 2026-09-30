@@ -14,13 +14,17 @@ import '../../domain/tools/tool_contract.dart';
 import '../process/process_utils.dart';
 
 class ExternalGrant {
-  const ExternalGrant({required this.path, required this.writable, required this.grantedAt});
+  const ExternalGrant(
+      {required this.path, required this.writable, required this.grantedAt});
   final String path;
   final bool writable;
   final DateTime grantedAt;
 
-  Map<String, Object?> toJson() =>
-      {'path': path, 'writable': writable, 'grantedAt': grantedAt.toIso8601String()};
+  Map<String, Object?> toJson() => {
+        'path': path,
+        'writable': writable,
+        'grantedAt': grantedAt.toIso8601String()
+      };
 
   factory ExternalGrant.fromJson(Map<String, Object?> j) => ExternalGrant(
         path: j['path'] as String,
@@ -38,7 +42,7 @@ class WorkspaceSandbox implements SandboxGateway {
     List<ExternalGrant> grants = const [],
     this.allowedDomains = const <String>{},
     this.allowAllLocalRead = true,
-  })  : _grants = List.of(grants) {
+  }) : _grants = List.of(grants) {
     _roots = roots.map(_canonical).toList();
   }
 
@@ -65,9 +69,11 @@ class WorkspaceSandbox implements SandboxGateway {
       if (roots.isEmpty) {
         throw VtFailure(
           code: VtErrorCode.validationFailed,
-          message: 'Workspace ainda não aberto — não há raiz para resolver caminho relativo.',
+          message:
+              'Workspace ainda não aberto — não há raiz para resolver caminho relativo.',
           recoveryActions: const [
-            RecoveryAction(kind: 'open_settings', label: 'Abrir pasta de projeto')
+            RecoveryAction(
+                kind: 'open_settings', label: 'Abrir pasta de projeto')
           ],
         );
       }
@@ -97,7 +103,8 @@ class WorkspaceSandbox implements SandboxGateway {
     if (linkType == FileSystemEntityType.link) {
       throw VtFailure(
         code: VtErrorCode.permissionDenied,
-        message: 'Symlink policy: "$p" é um symlink e a política atual não segue links. '
+        message:
+            'Symlink policy: "$p" é um symlink e a política atual não segue links. '
             'Ajuste filesystem.followSymlinks em Settings → FileSystem.',
       );
     }
@@ -105,7 +112,8 @@ class WorkspaceSandbox implements SandboxGateway {
 
   @override
   Future<String> resolveReadable(String rawPath, ToolContext ctx) async {
-    final p = _normalize(rawPath, ctx.workspaceRoots.isEmpty ? _roots : ctx.workspaceRoots);
+    final p = _normalize(
+        rawPath, ctx.workspaceRoots.isEmpty ? _roots : ctx.workspaceRoots);
     _checkSymlinkPolicy(p);
     if (!_inRoots(p, includeTemp: true) && !allowAllLocalRead) {
       final grant = _grants.any((g) => _inside(p, g.path));
@@ -121,7 +129,8 @@ class WorkspaceSandbox implements SandboxGateway {
     final p = _normalize(rawPath, roots);
     _checkSymlinkPolicy(p);
     if (_inRoots(p, includeTemp: true)) return p;
-    final grant = _grants.where((g) => g.writable).any((g) => _inside(p, g.path));
+    final grant =
+        _grants.where((g) => g.writable).any((g) => _inside(p, g.path));
     if (!grant) throw VtFailure.pathOutOfSandbox(p);
     return p;
   }
@@ -136,7 +145,9 @@ class WorkspaceSandbox implements SandboxGateway {
   @override
   bool isAllowedDomain(String domain, ToolContext ctx) {
     final d = normalizeSlashes(domain).toLowerCase();
-    if (allowedDomains.isEmpty) return false; // sem allowlist ⇒ nada de rede externa
+    if (allowedDomains.isEmpty) {
+      return false; // sem allowlist ⇒ nada de rede externa
+    }
     for (final allowed in allowedDomains) {
       final a = allowed.toLowerCase();
       if (d == a || d.endsWith('.${a.replaceFirst('.', '')}')) return true;
