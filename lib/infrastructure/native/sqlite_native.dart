@@ -302,15 +302,17 @@ class ChatRepository {
   Page<MessageRecord> pageMessages(String conversationId,
       {String? beforeId, int pageSize = 50}) {
     final size = _toInt(pageSize);
+    // `conversation_id` é obrigatório em MessageRecord.fromRow — precisa estar
+    // no SELECT (já esteve ausente, causando cast de Null para String).
+    const cols = 'id, conversation_id, role, model_id, mode, blocks_json,'
+        ' status, usage_json, created_at';
     final rows = beforeId == null
         ? db.query(
-            "SELECT id, role, model_id, mode, blocks_json, status, usage_json, created_at"
-            " FROM messages WHERE conversation_id=?"
+            "SELECT $cols FROM messages WHERE conversation_id=?"
             " ORDER BY id DESC LIMIT ${size + 1}",
             [conversationId])
         : db.query(
-            "SELECT id, role, model_id, mode, blocks_json, status, usage_json, created_at"
-            " FROM messages WHERE conversation_id=? AND id<?"
+            "SELECT $cols FROM messages WHERE conversation_id=? AND id<?"
             " ORDER BY id DESC LIMIT ${size + 1}",
             [conversationId, beforeId]);
     final hasMore = rows.length > size;
