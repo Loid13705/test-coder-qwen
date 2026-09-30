@@ -340,8 +340,9 @@ class OpenAiCompatibleProvider implements LlmProvider {
                 toolCallAccum.putIfAbsent(idx, () => _PartialToolCall());
             if (m['id'] != null) acc.id = m['id'] as String;
             if (fn?['name'] != null) acc.name += fn!['name'] as String;
-            if (fn?['arguments'] != null)
+            if (fn?['arguments'] != null) {
               acc.args += fn!['arguments'] as String;
+            }
           }
         }
         final finish = c0['finish_reason'] as String?;

@@ -145,8 +145,9 @@ class WorkspaceSandbox implements SandboxGateway {
   @override
   bool isAllowedDomain(String domain, ToolContext ctx) {
     final d = normalizeSlashes(domain).toLowerCase();
-    if (allowedDomains.isEmpty)
+    if (allowedDomains.isEmpty) {
       return false; // sem allowlist ⇒ nada de rede externa
+    }
     for (final allowed in allowedDomains) {
       final a = allowed.toLowerCase();
       if (d == a || d.endsWith('.${a.replaceFirst('.', '')}')) return true;

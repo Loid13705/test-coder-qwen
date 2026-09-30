@@ -229,8 +229,9 @@ class GitLogTool extends _GitToolBase {
         '--max-count=${limit + 1}',
         '--skip=$skip',
       ];
-      if (input.str('author').isNotEmpty)
+      if (input.str('author').isNotEmpty) {
         args.add('--author=${input.str('author')}');
+      }
       if (input.str('pathFilter').isNotEmpty) {
         args.addAll(['--', input.str('pathFilter')]);
       }
@@ -325,8 +326,9 @@ class GitBranchListTool extends _GitToolBase {
         if (input.boolOf('all')) '-a',
         '--format=%(refname)%09%(HEAD)%09%(objectname:short)',
       ]);
-      if (res.exitCode != 0)
+      if (res.exitCode != 0) {
         return ToolFailureResult(failureFrom(res, 'branch'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -372,8 +374,9 @@ class GitBranchCreateTool extends _GitToolBase {
       final args = <String>['branch', name];
       if (input.str('startPoint').isNotEmpty) args.add(input.str('startPoint'));
       final res = await runGit(ctx, args);
-      if (res.exitCode != 0)
+      if (res.exitCode != 0) {
         return ToolFailureResult(failureFrom(res, 'branch create'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -423,8 +426,9 @@ class GitBranchDeleteTool extends _GitToolBase {
       }
       final res = await runGit(ctx,
           ['branch', input.boolOf('force') ? '-D' : '-d', input.str('name')]);
-      if (res.exitCode != 0)
+      if (res.exitCode != 0) {
         return ToolFailureResult(failureFrom(res, 'branch delete'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -475,8 +479,9 @@ class GitCheckoutTool extends _GitToolBase {
           ? ['checkout', '-b', input.str('target')]
           : ['checkout', input.str('target')];
       final res = await runGit(ctx, args);
-      if (res.exitCode != 0)
+      if (res.exitCode != 0) {
         return ToolFailureResult(failureFrom(res, 'checkout'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -576,8 +581,9 @@ class GitUnstageTool extends _GitToolBase {
     try {
       final res = await runGit(
           ctx, ['restore', '--staged', '--', ...input.list('paths')]);
-      if (res.exitCode != 0)
+      if (res.exitCode != 0) {
         return ToolFailureResult(failureFrom(res, 'restore --staged'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);
@@ -623,8 +629,9 @@ class GitCommitTool extends _GitToolBase {
       final args = <String>['commit', '-m', msg];
       if (input.boolOf('allowEmpty')) args.add('--allow-empty');
       final res = await runGit(ctx, args);
-      if (res.exitCode != 0)
+      if (res.exitCode != 0) {
         return ToolFailureResult(failureFrom(res, 'commit'));
+      }
       final sha = await runGit(ctx, ['rev-parse', 'HEAD']);
       return success(res, extra: {'commitSha': (sha.stdout as String).trim()});
     } on VtFailure catch (f) {
@@ -760,8 +767,9 @@ class GitFetchTool extends _GitToolBase {
         if (input.boolOf('prune')) '--prune',
         if (input.str('remote').isNotEmpty) input.str('remote'),
       ]);
-      if (res.exitCode != 0)
+      if (res.exitCode != 0) {
         return ToolFailureResult(failureFrom(res, 'fetch'));
+      }
       return success(res);
     } on VtFailure catch (f) {
       return ToolFailureResult(f);

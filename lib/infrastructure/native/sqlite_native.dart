@@ -126,8 +126,9 @@ class SqliteDb {
         for (var i = 0; i < params.length; i++) {
           final b = _bindText(
               stmt, i + 1, params[i].toNativeUtf8(allocator: arena), nullptr);
-          if (b != _sqliteOk && b != _sqliteTransient)
+          if (b != _sqliteOk && b != _sqliteTransient) {
             throw SqliteException(b, _lastError());
+          }
         }
         final cols = _colCount(stmt);
         final names = <String>[];

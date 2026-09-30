@@ -953,8 +953,9 @@ class FsDeleteTrashTool extends _FsTool {
 
   @override
   Future<ToolHealth> health(ToolContext ctx) async {
-    if (Platform.isMacOS)
+    if (Platform.isMacOS) {
       return const HealthOk('Finder AppleScript disponível');
+    }
     if (Platform.isLinux) {
       final gio = await findBinary('gio');
       if (gio != null) return HealthOk(gio);
