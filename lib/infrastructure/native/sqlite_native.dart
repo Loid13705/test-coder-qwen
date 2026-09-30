@@ -88,6 +88,8 @@ class SqliteDb {
         _lib.lookupFunction<_FinalizeC, _FinalizeDart>('sqlite3_finalize');
     _colText =
         _lib.lookupFunction<_ColTextC, _ColTextDart>('sqlite3_column_text');
+    _colName = _lib.lookupFunction<_ColTextC, _ColTextDart>(
+        'sqlite3_column_name');
     _colCount =
         _lib.lookupFunction<_ColCountC, _ColCountDart>('sqlite3_column_count');
     _bindText =
@@ -104,6 +106,7 @@ class SqliteDb {
   late final _StepDart _step;
   late final _FinalizeDart _finalize;
   late final _ColTextDart _colText;
+  late final Pointer<Utf8> Function(Pointer<Void>, int) _colName;
   late final _ColCountDart _colCount;
   late final _BindTextDart _bindText;
   late final _ErrMsgDart _errMsg;
@@ -144,27 +147,16 @@ class SqliteDb {
           }
         }
         final cols = _colCount(stmt);
-        // sqlite3_column_name só é seguro DEPOIS do primeiro sqlite3_step:
-        // em statements com bind de parâmetros, chamá-lo antes corrompe o
-        // buffer interno de nomes e o step seguinte segue ponteiro inválido
-        // (segfault real em libsqlite3 — reprodutível com `WHERE x=?`).
-        List<String>? names;
+        // Nomes de coluna: sqlite3_column_name é estável após prepare e pode
+        // ser lido uma única vez antes do loop de steps (a string pertence ao
+        // statement e vive até finalize). Ler por step era o que deixava o
+        // mapa vazio em queries sem linhas (ex.: COUNT sobre tabela vazia).
+        final names = [for (var c = 0; c < cols; c++) _colName(stmt, c).toDartString()];
         final rows = <Map<String, Object?>>[];
         while (true) {
           final s = _step(stmt);
           if (s == _sqliteDone) break;
           if (s != _sqliteRow) throw SqliteException(s, _lastError());
-          names ??= () {
-            try {
-              final nameFn = _lib.lookupFunction<
-                  Pointer<Utf8> Function(Pointer<Void>, Int32),
-                  Pointer<Utf8> Function(
-                      Pointer<Void>, int)>('sqlite3_column_name');
-              return [for (var c = 0; c < cols; c++) nameFn(stmt, c).toDartString()];
-            } on ArgumentError {
-              return [for (var c = 0; c < cols; c++) '$c'];
-            }
-          }();
           final row = <String, Object?>{};
           for (var c = 0; c < cols; c++) {
             final t = _colText(stmt, c);
@@ -172,9 +164,6 @@ class SqliteDb {
           }
           rows.add(row);
         }
-        // statement sem linhas ainda precisa dos nomes p/ chamadores que só
-        // olham chaves; nunca chamado antes do step acima (regra de segurança).
-        names ??= const [];
         return rows;
       } finally {
         _finalize(stmt);
