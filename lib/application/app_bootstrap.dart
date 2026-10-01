@@ -13,6 +13,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../domain/tools/tool_contract.dart';
+import '../infrastructure/checkpoint/checkpoint_store.dart';
+import '../infrastructure/checkpoint/checkpoint_tools.dart';
 import '../infrastructure/fs/fs_tools.dart';
 import '../infrastructure/git/git_tools.dart';
 import '../infrastructure/native/memory_store.dart';
@@ -157,16 +159,18 @@ Future<SqliteDb> openLocalDb(String dataDir) async {
   return SqliteNative.open("$dataDir/techvt.sqlite");
 }
 
-/// Registra TODAS as ferramentas reais disponíveis (15 FS + 15 Git + 5
-/// memória + 4 índice de código + 3 índice vetorial). A política de aprovação
-/// continua sendo do contrato de cada tool (write/exec exigem aprovação;
-/// reads são auto). [embedderResolver] pode retornar null (sem provider de
-/// embeddings configurado) — as tools vectoriais degradam honestamente.
+/// Registra TODAS as ferramentas reais disponíveis (15 FS + 15 Git + 3
+/// checkpoint + 5 memória + 4 índice de código + 3 índice vetorial). A política
+/// de aprovação continua sendo do contrato de cada tool (write/exec exigem
+/// aprovação; reads são auto). [embedderResolver] pode retornar null (sem
+/// provider de embeddings configurado) — as tools vectoriais degradam
+/// honestamente.
 ToolRegistry buildFullToolRegistry(SqliteDb db,
-    {EmbeddingProvider? Function()? embedderResolver}) {
+    {EmbeddingProvider? Function()? embedderResolver, String? dataDir}) {
   final memory = MemoryStore(db);
   final codeIndex = CodeIndexStore(db);
   final vectors = VectorIndexStore(db, codeIndex);
+  final checkpoints = CheckpointStore(db, dataDir: dataDir ?? defaultDataDir());
   final resolve = embedderResolver ?? () => null;
   return ToolRegistry()
     // filesystem
@@ -185,6 +189,10 @@ ToolRegistry buildFullToolRegistry(SqliteDb db,
     ..register(FsChecksumTool())
     ..register(FsDeleteTrashTool())
     ..register(FsPermanentDeleteTool())
+    // checkpoint (rollback pré/post-write real)
+    ..register(CheckpointCreateTool(checkpoints))
+    ..register(CheckpointListTool(checkpoints))
+    ..register(CheckpointRestoreTool(checkpoints))
     // git
     ..register(GitStatusTool())
     ..register(GitDiffTool())
@@ -253,6 +261,7 @@ class VtApp {
     required this.workspaceRoots,
     required this.db,
     required this.memory,
+    required this.checkpoints,
     required this.sandbox,
     required this.settings,
     required this.registry,
@@ -277,7 +286,7 @@ class VtApp {
     final db = await openLocalDb(dir);
     final settings = await FileSettings.load(dir);
     final sandbox = WorkspaceSandbox(roots: workspaceRoots, tempDir: tempDir.path);
-    final registry = buildFullToolRegistry(db);
+    final registry = buildFullToolRegistry(db, dataDir: dir);
     final providers = await buildProviders(
       settings.providers,
       keyResolver ?? (_) async => null,
@@ -297,6 +306,7 @@ class VtApp {
       workspaceRoots: workspaceRoots,
       db: db,
       memory: MemoryStore(db),
+      checkpoints: CheckpointStore(db, dataDir: dir),
       sandbox: sandbox,
       settings: settings,
       registry: registry,
@@ -309,6 +319,9 @@ class VtApp {
   final List<String> workspaceRoots;
   final SqliteDb db;
   final MemoryStore memory;
+
+  /// Rollback seguro: snapshots pré-write reais (bytes + SQLite).
+  final CheckpointStore checkpoints;
   final WorkspaceSandbox sandbox;
   final FileSettings settings;
   final ToolRegistry registry;

@@ -339,10 +339,8 @@ class _ComposerState extends ConsumerState<_Composer> {
 
     var convId = ref.read(currentConversationIdProvider);
     try {
-      if (convId == null) {
-        convId = ref.read(conversationListProvider.notifier).create(
-            text.length > 40 ? '${text.substring(0, 40)}…' : text);
-      }
+      convId ??= ref.read(conversationListProvider.notifier).create(
+          text.length > 40 ? '${text.substring(0, 40)}…' : text);
     } on VtFailure catch (f) {
       _showError(f);
       return;
