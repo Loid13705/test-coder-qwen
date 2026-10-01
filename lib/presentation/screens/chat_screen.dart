@@ -53,23 +53,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _stickToBottom();
     }
 
-    return Row(
+    // O painel de conversas NÃO mora mais aqui: é persistente no VtShell
+    // (direita da janela) e sobrevive à troca de seções. A tela Chat ocupa a
+    // área de conteúdo inteira.
+    return Column(
       children: [
-        _ConversationsPanel(onPick: (_) {}, width: 250),
-        VerticalDivider(width: 1),
         Expanded(
-          child: Column(
-            children: [
-              Expanded(
-                child: convId == null
-                    ? const _EmptyChat()
-                    : _Timeline(convId: convId, scroll: _scroll, live: live),
-              ),
-              const Divider(height: 1),
-              const _Composer(),
-            ],
-          ),
+          child: convId == null
+              ? const _EmptyChat()
+              : _Timeline(convId: convId, scroll: _scroll, live: live),
         ),
+        const Divider(height: 1),
+        const _Composer(),
       ],
     );
   }
@@ -283,12 +278,17 @@ class _LiveToolCallCard extends StatelessWidget {
         children: [
           Icon(icon, size: 15, color: color),
           const SizedBox(width: 8),
-          Text(call.toolId,
-              style: const TextStyle(
-                  fontFamily: 'monospace', fontSize: 12)),
-          const Spacer(),
-          Text(label, style: theme.textTheme.labelSmall?.copyWith(
-              color: color)),
+          // toolId arbitrário (do provider) — Flexible+ellipsis para não
+          // estourar o card em janelas estreitas.
+          Flexible(
+            child: Text(call.toolId,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontFamily: 'monospace', fontSize: 12)),
+          ),
+          const SizedBox(width: 8),
+          Text(label,
+              style: theme.textTheme.labelSmall?.copyWith(color: color)),
         ],
       ),
     );
@@ -491,94 +491,6 @@ class _ComposerState extends ConsumerState<_Composer> {
                   label: const Text('Enviar'),
                 ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// Painel de conversas (reutilizado pela tela de workspaces)
-// ============================================================================
-
-class _ConversationsPanel extends ConsumerWidget {
-  const _ConversationsPanel(
-      {required this.onPick, this.width = 250});
-
-  final void Function(String conversationId) onPick;
-  final double width;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final data = ref.watch(conversationListProvider);
-    final current = ref.watch(currentConversationIdProvider);
-
-    return SizedBox(
-      width: width,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 6, 4),
-            child: Row(
-              children: [
-                Expanded(
-                    child: Text('Conversas',
-                        style: theme.textTheme.labelLarge)),
-                IconButton(
-                  iconSize: 16,
-                  tooltip: 'Nova conversa',
-                  onPressed: () {
-                    try {
-                      ref
-                          .read(conversationListProvider.notifier)
-                          .create('Nova conversa');
-                    } on VtFailure catch (f) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(f.message)));
-                    }
-                  },
-                  icon: const Icon(Icons.add_comment_outlined),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: data.items.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      data.workspaceId == null
-                          ? 'Abra um workspace em Workspaces para começar.'
-                          : 'Sem conversas ainda.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  )
-                : ListView(
-                    children: [
-                      for (final row in data.items)
-                        ListTile(
-                          dense: true,
-                          selected: row['id'] == current,
-                          leading: const Icon(Icons.chat_bubble_outline,
-                              size: 15),
-                          title: Text('${row['title'] ?? '(sem título)'}',
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text('${row['created_at'] ?? ''}',
-                              maxLines: 1,
-                              style: theme.textTheme.labelSmall),
-                          onTap: () {
-                            ref
-                                .read(currentConversationIdProvider.notifier)
-                                .state = row['id'] as String;
-                            onPick(row['id'] as String);
-                          },
-                        ),
-                    ],
-                  ),
           ),
         ],
       ),

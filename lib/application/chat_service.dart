@@ -176,13 +176,44 @@ class ChatService {
   String createConversation(
           {required String workspaceId,
           required String title,
-          String? parentId}) =>
+          String? parentId,
+          String folder = ''}) =>
       repo.createConversation(
-          workspaceId: workspaceId, title: title, parentId: parentId);
+          workspaceId: workspaceId,
+          title: title,
+          parentId: parentId,
+          folder: folder);
 
-  List<Map<String, Object?>> listConversations(String workspaceId,
-          {int limit = 50}) =>
-      repo.listConversations(workspaceId, limit: limit);
+  List<Map<String, Object?>> listConversations(String? workspaceId,
+          {int limit = 200, bool includeAllWs = false}) =>
+      repo.listConversations(workspaceId,
+          limit: limit, includeAllWs: includeAllWs);
+
+  List<Map<String, Object?>> listArchivedConversations(String? workspaceId,
+          {int limit = 200, bool includeAllWs = false}) =>
+      repo.listArchivedConversations(workspaceId,
+          limit: limit, includeAllWs: includeAllWs);
+
+  List<Map<String, Object?>> listDeletedConversations(String? workspaceId,
+          {int limit = 200, bool includeAllWs = false}) =>
+      repo.listDeletedConversations(workspaceId,
+          limit: limit, includeAllWs: includeAllWs);
+
+  /// Metadados reais da conversa no painel lateral (spec §CHAT): pin, tags,
+  /// pasta, renomear — tudo persistido no SQLite, nada é estado de widget.
+  void setPinned(String id, bool pinned) => repo.setPinned(id, pinned);
+  void setTags(String id, List<String> tags) => repo.setTags(id, tags);
+  void setFolder(String id, String folder) => repo.setFolder(id, folder);
+  void renameConversation(String id, String title) =>
+      repo.renameConversation(id, title);
+
+  /// Archive / soft-delete / restore / purge. O delete padrão é SOFT
+  /// (`status='deleted'`, restaurável na lixeira); [purgeConversation] é a
+  /// exclusão definitiva, exposta na UI apenas após confirmação explícita.
+  void archiveConversation(String id) => repo.archiveConversation(id);
+  void softDeleteConversation(String id) => repo.softDeleteConversation(id);
+  void restoreConversation(String id) => repo.restoreConversation(id);
+  void purgeConversation(String id) => repo.purgeConversation(id);
 
   /// Histórico paginado cursor-based (spec: chat 50 msgs/página default).
   Page<MessageRecord> pageMessages(String conversationId,

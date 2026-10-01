@@ -296,29 +296,84 @@ final focusedWorkspacePathProvider = Provider<String?>((ref) {
   return roots.isEmpty ? null : roots.first;
 });
 
+/// Escopo de listagem do painel lateral de conversas (spec §CHAT): a conversa
+/// por workspace é o default; "Todas" cruza workspaces; "Global" usa o
+/// sentinel real [kGlobalConversationWorkspace] no `workspace_id` do SQLite.
+enum ConversationScope { currentWorkspace, global, all }
+
+final conversationScopeProvider =
+    StateProvider<ConversationScope>((ref) => ConversationScope.currentWorkspace);
+
+/// Filtro de status da lista (arquivadas/lixeira têm restore dedicado).
+enum ConversationListFilter { active, archived, trash }
+
+final conversationFilterProvider =
+    StateProvider<ConversationFilterHolder>((ref) => const ConversationFilterHolder());
+
+/// Holder imutável para o filtro poder ser carregado dentro do notifier sem
+/// ciclo (StateProvider simples também serviria; este wrapper só dá nome ao
+/// estado na árvore de debug).
+class ConversationFilterHolder {
+  const ConversationFilterHolder({this.filter = ConversationListFilter.active});
+  final ConversationListFilter filter;
+}
+
 class ConversationListData {
-  const ConversationListData({required this.items, required this.workspaceId});
-  /// Linhas reais de `conversations` (id, title, created_at, ...).
+  const ConversationListData({
+    required this.items,
+    required this.workspaceId,
+    required this.scope,
+    required this.filter,
+  });
+  /// Linhas reais de `conversations` (id, title, pinned, tags, folder, ...).
   final List<Map<String, Object?>> items;
   final String? workspaceId;
+  final ConversationScope scope;
+  final ConversationListFilter filter;
 }
 
 class ConversationListNotifier extends AutoDisposeNotifier<ConversationListData> {
   @override
   ConversationListData build() {
     final ws = ref.watch(focusedWorkspacePathProvider);
-    if (ws == null) {
-      return const ConversationListData(items: [], workspaceId: null);
+    final scope = ref.watch(conversationScopeProvider);
+    final filter = ref.watch(conversationFilterProvider).filter;
+    final chat = ref.watch(chatServiceProvider);
+    final targetWs = switch (scope) {
+      ConversationScope.currentWorkspace => ws,
+      ConversationScope.global => kGlobalConversationWorkspace,
+      ConversationScope.all => null,
+    };
+    if (targetWs == null &&
+        scope == ConversationScope.currentWorkspace &&
+        filter == ConversationListFilter.active) {
+      // Sem workspace aberto e escopo "deste workspace": nada a listar — mas
+      // ainda assim um banco com todas as conversas existe; a UI mostra a
+      // dica de abrir workspace.
+      return ConversationListData(
+          items: const [], workspaceId: null, scope: scope, filter: filter);
     }
+    final includeAll = scope == ConversationScope.all;
+    final items = switch (filter) {
+      ConversationListFilter.active =>
+        chat.listConversations(targetWs, includeAllWs: includeAll),
+      ConversationListFilter.archived =>
+        chat.listArchivedConversations(targetWs, includeAllWs: includeAll),
+      ConversationListFilter.trash =>
+        chat.listDeletedConversations(targetWs, includeAllWs: includeAll),
+    };
     return ConversationListData(
-      items: ref.watch(chatServiceProvider).listConversations(ws),
-      workspaceId: ws,
-    );
+        items: items, workspaceId: targetWs ?? ws, scope: scope, filter: filter);
   }
 
-  /// Cria conversa REAL no SQLite e a coloca em foco.
+  /// Cria conversa REAL no SQLite e a coloca em foco. No escopo Global usa o
+  /// sentinel [kGlobalConversationWorkspace]; no escopo "Todas" herda o
+  /// workspace em foco (a conversa pertence a um lugar concreto).
   String create(String title) {
-    final ws = state.workspaceId;
+    final data = state;
+    final ws = data.scope == ConversationScope.global
+        ? kGlobalConversationWorkspace
+        : data.workspaceId;
     if (ws == null) {
       throw VtFailure(
         code: VtErrorCode.validationFailed,
@@ -328,11 +383,90 @@ class ConversationListNotifier extends AutoDisposeNotifier<ConversationListData>
         ],
       );
     }
-    final id = ref.read(chatServiceProvider)
+    final id = ref
+        .read(chatServiceProvider)
         .createConversation(workspaceId: ws, title: title);
     ref.read(currentConversationIdProvider.notifier).state = id;
     refresh();
     return id;
+  }
+
+  /// Fork/branch REAL: nova linha `conversations` apontando `parent_id` para a
+  /// conversa original (a origem continua intacta; histórico compartilhado é
+  /// copiado à frente conforme novas mensagens chegarem).
+  String fork(String sourceId, String title) {
+    final src = _rowById(sourceId);
+    if (src == null) {
+      throw VtFailure(
+          code: VtErrorCode.validationFailed,
+          message: 'Conversa de origem não encontrada: $sourceId');
+    }
+    final id = ref.read(chatServiceProvider).createConversation(
+        workspaceId: '${src['workspace_id']}',
+        title: title,
+        parentId: sourceId);
+    ref.read(currentConversationIdProvider.notifier).state = id;
+    refresh();
+    return id;
+  }
+
+  void setPinned(String id, bool pinned) {
+    ref.read(chatServiceProvider).setPinned(id, pinned);
+    refresh();
+  }
+
+  void setTags(String id, List<String> tags) {
+    ref.read(chatServiceProvider).setTags(id, tags);
+    refresh();
+  }
+
+  void setFolder(String id, String folder) {
+    ref.read(chatServiceProvider).setFolder(id, folder);
+    refresh();
+  }
+
+  void rename(String id, String title) {
+    ref.read(chatServiceProvider).renameConversation(id, title);
+    refresh();
+  }
+
+  void archive(String id) {
+    ref.read(chatServiceProvider).archiveConversation(id);
+    if (ref.read(currentConversationIdProvider) == id) {
+      ref.read(currentConversationIdProvider.notifier).state = null;
+    }
+    refresh();
+  }
+
+  /// Delete SOFT (vai para a lixeira, restaurável). A UI pede confirmação
+  /// antes de chamar isto; purge definitivo exige segunda confirmação.
+  void softDelete(String id) {
+    ref.read(chatServiceProvider).softDeleteConversation(id);
+    if (ref.read(currentConversationIdProvider) == id) {
+      ref.read(currentConversationIdProvider.notifier).state = null;
+    }
+    refresh();
+  }
+
+  void restore(String id) {
+    ref.read(chatServiceProvider).restoreConversation(id);
+    refresh();
+  }
+
+  void purge(String id) {
+    ref.read(chatServiceProvider).purgeConversation(id);
+    if (ref.read(currentConversationIdProvider) == id) {
+      ref.read(currentConversationIdProvider.notifier).state = null;
+    }
+    refresh();
+  }
+
+  Map<String, Object?>? _rowById(String id) {
+    for (final r in ref.read(chatServiceProvider).listConversations(null,
+        includeAllWs: true)) {
+      if (r['id'] == id) return r;
+    }
+    return null;
   }
 
   void refresh() => state = build();

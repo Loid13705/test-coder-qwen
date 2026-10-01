@@ -232,8 +232,13 @@ class CodeCard extends StatelessWidget {
               children: [
                 Icon(Icons.code, size: 14, color: theme.hintColor),
                 const SizedBox(width: 6),
-                Text(fileName ?? language,
-                    style: theme.textTheme.labelSmall),
+                // Flexible + ellipsis: nome do arquivo/linguagem longo não
+                // estoura o Row quando a janela fica estreita.
+                Flexible(
+                  child: Text(fileName ?? language,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall),
+                ),
                 const Spacer(),
                 IconButton(
                   iconSize: 14,
