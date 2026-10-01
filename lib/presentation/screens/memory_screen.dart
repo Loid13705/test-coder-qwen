@@ -425,7 +425,7 @@ class _MemoryEditorDialogState extends State<_MemoryEditorDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         DropdownButtonFormField<String>(
-          initialValue: _kind,
+          value: _kind,
           decoration: const InputDecoration(labelText: 'Tipo'),
           items: [
             for (final k in _kMemoryKinds)

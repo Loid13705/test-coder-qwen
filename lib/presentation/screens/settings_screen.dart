@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/app_bootstrap.dart';
-import '../secrets/secret_store.dart';
 import '../state/app_state.dart';
 import '../theme/vt_theme.dart';
 

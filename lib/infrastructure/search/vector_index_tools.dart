@@ -13,7 +13,6 @@ import 'dart:io';
 import '../../domain/errors/vt_failure.dart';
 import '../../domain/tools/tool_contract.dart';
 import '../provider/provider_contract.dart';
-import 'code_index_store.dart';
 import 'vector_index_store.dart';
 
 Future<ToolResult<O>> _guard<O extends ToolOutput>(

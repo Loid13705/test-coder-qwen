@@ -18,7 +18,6 @@ import '../../application/approval.dart';
 import '../../application/chat_service.dart';
 import '../../application/tool_registry.dart';
 import '../../domain/errors/vt_failure.dart';
-import '../../domain/models/pagination.dart';
 import '../../infrastructure/native/chat_records.dart';
 import '../../infrastructure/provider/provider_contract.dart';
 import '../dialogs/approval_dialog.dart';
@@ -69,17 +68,15 @@ class UiApprovalGateway implements ApprovalGateway {
 final pendingWorkspaceRootsProvider =
     StateProvider<List<String>>((ref) => const []);
 
-@visibleForTesting
-extension BootNotifierTestAccess on BootNotifier {
-  /// Injeta um resultado de boot determinístico em testes de widget (a UI do
-  /// gate é idêntica à produzida por `bootstrapStrict` — mesma hierarquia
-  /// [BootResult], mesmo [VtFailure] tipado). Em produção ninguém chama isto.
-  void debugSetState(BootResult result) => state = result;
-}
-
 class BootNotifier extends Notifier<BootResult> {
   @override
   BootResult build() => const Booting();
+
+  /// Injeta um resultado de boot determinístico em testes de widget (a UI do
+  /// gate é idêntica à produzida por `bootstrapStrict` — mesma hierarquia
+  /// [BootResult], mesmo [VtFailure] tipado). Em produção ninguém chama isto.
+  @visibleForTesting
+  void debugSetState(BootResult result) => state = result;
 
   /// Boot real chamado pelo splash ANTES de publicar [vtAppProvider].
   Future<void> bootstrapStrict({

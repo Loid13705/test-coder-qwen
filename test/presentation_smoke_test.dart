@@ -76,8 +76,7 @@ void main() {
 
     // Fecha por Navigator.pop SEM tocar nos botões de decisão — o diálogo
     // retorna null (nenhuma aprovação implícita).
-    final dialogContext =
-        find.byType(ApprovalDialog).evaluate().single as Element;
+    final dialogContext = find.byType(ApprovalDialog).evaluate().single;
     Navigator.of(dialogContext).pop();
     await tester.pumpAndSettle();
     expect(result, isNull);
@@ -98,6 +97,8 @@ void main() {
     final gateway = UiApprovalGateway(() => rootCtx);
     var done = false;
     ApprovalDecision? decision;
+    // ignore: unawaited_futures — decidimos via pop() abaixo e aguardamos o
+    // resultado com pumpAndSettle; a Future não precisa de await aqui.
     gateway.request(_sampleRequest()).then((d) {
       decision = d;
       done = true;
@@ -106,8 +107,7 @@ void main() {
 
     // Fecha o overlay sem decidir — exatamente o que acontece quando o
     // usuário dispensa a janela. O gateway deve converter em rejeição.
-    Navigator.of(find.byType(ApprovalDialog).evaluate().single as Element)
-        .pop();
+    Navigator.of(find.byType(ApprovalDialog).evaluate().single).pop();
     await tester.pumpAndSettle();
 
     expect(done, isTrue);
