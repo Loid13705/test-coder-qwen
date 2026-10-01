@@ -130,6 +130,11 @@ class ScanStats {
 /// por linha — a forma canônica do `dart format`. Semântica de escopo não
 /// é resolvida aqui: isso é trabalho do LSP, não deste índice lexical.
 final List<(RegExp, String)> kDartSymbolPatterns = [
+  // construtor com inicializadores `this.`: `BaseThing(this.name);` — o
+  // padrão genérico de função abaixo captura o parâmetro (`name`) como
+  // nome; este padrão mais específico roda primeiro e devolve o nome real
+  // da classe, classificando corretamente como constructor.
+  (RegExp(r'^\s*([A-Z][\w$]*)\s*\(\s*this\.[^)]*\)\s*[{:;=]'), 'constructor'),
   (RegExp(r'^\s*abstract\s+class\s+([A-Za-z_$][\w$]*)'), 'class'),
   (RegExp(r'^\s*(?:base\s+|final\s+|sealed\s+|interface\s+)*class\s+([A-Za-z_$][\w$]*)'),
       'class'),
@@ -145,6 +150,7 @@ final List<(RegExp, String)> kDartSymbolPatterns = [
         r'(?:[\w<>?, .]+\s+)?([A-Za-z_$][\w$]*)\s*\(([^{;]*)\)\s*(?:async\s*[a-z]*\s*)?[{;=]'),
     'function'
   ),
+
   // campo/variável top-level ou de instância: `Tipo nome = ...;` ou `Tipo nome;`
   (
     RegExp(
@@ -167,6 +173,9 @@ List<(String, String, int, String)> extractDartSymbols(String content) {
     if (t.startsWith('//') || t.startsWith('///') || t.startsWith('/*')) {
       continue;
     }
+    // linha de statement puro (`print(x);`, `return;`) não define símbolo —
+    // sem isso, chamadas com identificador único casam no padrão de função.
+    if (_isStatementLine(t)) continue;
     for (final (re, kind) in kDartSymbolPatterns) {
       final m = re.firstMatch(line);
       if (m == null) continue;
@@ -184,6 +193,17 @@ List<(String, String, int, String)> extractDartSymbols(String content) {
   }
   return out;
 }
+
+/// Linhas que são *uso* de código, não definição: statements de controle,
+/// chamadas soltas (`print(x);`) e blocos vazios de fechamento. Um único
+/// identificador seguido de `(` nestas linhas nunca é nome de símbolo —
+/// sem este filtro, `print(x);` viraria uma "função" chamada `print`.
+final _kStatementHeads = RegExp(
+  r'^(?:if|else|for|while|do|switch|case|default|return|break|continue|try|catch|finally|throw|yield|await)\b'
+  r'|^[a-z_$][\w$]*\s*\([^()]*\)\s*;\s*$',
+);
+
+bool _isStatementLine(String t) => _kStatementHeads.hasMatch(t);
 
 const _kReserved = {
   'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'return',
@@ -204,7 +224,7 @@ class CodeIndexStore {
 
   /// Versão do extrator — embutida no hash para invalidar índices antigos
   /// quando os padrões mudarem (reindex automático no primeiro scan).
-  static const extractorVersion = 'v1';
+  static const extractorVersion = "v2";
 
   /// Scan incremental de [root] (somente `.dart` por ora): indexa apenas
   /// documentos novos/alterados (por mtime + SHA-256) e remove documentos

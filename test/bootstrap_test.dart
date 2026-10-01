@@ -74,14 +74,14 @@ void main() {
   });
 
   group('buildFullToolRegistry', () {
-    test('registra as 35 ferramentas reais (15 fs + 15 git + 5 memória)',
+    test('registra as 42 ferramentas reais (15 fs + 15 git + 5 memória + 4 índice de código + 3 vetorial)',
         () {
       if (!SqliteNative.available) return; // mesma guarda dos demais testes
       final db = SqliteNative.open('${tmp.path}/tools.db');
       addTearDown(db.close);
       final reg = buildFullToolRegistry(db);
       final ids = reg.all.map((t) => t.id).toList()..sort();
-      expect(ids.length, 35);
+      expect(ids.length, 42);
       for (final must in [
         'fs.read_text',
         'fs.write_text',
@@ -123,7 +123,7 @@ void main() {
 
       expect(File('$dataDir/techvt.sqlite').existsSync(), isTrue);
       expect(app.providerIds, ['local']);
-      expect(app.chat.tools!.all.length, 35);
+      expect(app.chat.tools!.all.length, 42);
 
       // provider registrado de verdade (chave resolvida via resolver)
       final p = app.chat.providers.require('local');

@@ -95,9 +95,14 @@ void main() {
       expect(byName['toString']?.$1, 'function');
       expect(byName['name']?.$1, 'field');
       expect(byName['_instance']?.$1, 'field');
+      // construtor com inicializador `this.`: nome real da classe, kind
+      // correto (não o parâmetro nem uma função genérica).
+      expect(byName['BaseThing']?.$1, 'constructor');
       // doc comment jamais vira símbolo
       expect(byName.containsKey('Fake'), isFalse);
-      // linha 1-based confere com o fonte
+      // chamada solta (`print(x);`) é uso, não definição — nunca vira símbolo
+      expect(syms.any((s) => s.$1 == 'print'), isFalse);
+      // linha 1-based confere com o fonte (aqui: abstract class na linha 8)
       expect(byName['BaseThing']?.$2, greaterThan(1));
     });
 
