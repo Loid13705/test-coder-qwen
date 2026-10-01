@@ -110,7 +110,7 @@ class ChatService {
     this.maxToolIterations = 8,
   })  : repo = ChatRepository(db),
         _tools = tools,
-        workspaceRoots = workspaceRoots,
+        workspaceRoots = List.unmodifiable(workspaceRoots),
         _toolExecutor = tools == null
             ? null
             : ToolExecutor(

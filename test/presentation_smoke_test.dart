@@ -8,6 +8,8 @@
 /// - DiffView renderiza +/− com as cores do tema estendido.
 library;
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -95,22 +97,19 @@ void main() {
     ));
 
     final gateway = UiApprovalGateway(() => rootCtx);
-    var done = false;
     ApprovalDecision? decision;
-    // ignore: unawaited_futures — decidimos via pop() abaixo e aguardamos o
-    // resultado com pumpAndSettle; a Future não precisa de await aqui.
-    gateway.request(_sampleRequest()).then((d) {
-      decision = d;
-      done = true;
-    });
+    // A Future resolve quando o diálogo fecha; guardamos a referência e só
+    // aguardamos depois do pop() — sem await aqui o pump veria o overlay vivo.
+    final pending = gateway.request(_sampleRequest()).then((d) => decision = d);
+    // ignore: unawaited_futures — awaited logo abaixo, após fechar o diálogo.
+    unawaited(pending);
     await tester.pump(); // abre o diálogo (showDialog → overlay vivo)
 
     // Fecha o overlay sem decidir — exatamente o que acontece quando o
     // usuário dispensa a janela. O gateway deve converter em rejeição.
     Navigator.of(find.byType(ApprovalDialog).evaluate().single).pop();
+    await pending;
     await tester.pumpAndSettle();
-
-    expect(done, isTrue);
     expect(decision!.outcome, ApprovalOutcome.rejected);
     expect(decision!.isApproved, isFalse);
   });

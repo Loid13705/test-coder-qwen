@@ -303,9 +303,11 @@ void f() {
       expect(searchRes2, isA<ToolSuccess<TextOutput>>());
       final hits = jsonDecode(
               (searchRes2 as ToolSuccess<TextOutput>).data.text)
-          as List;
-      expect(hits.single['name'], 'topLevelFn');
-      expect(hits.single['kind'], 'function');
+          as List<dynamic>;
+      expect(hits.single, isA<Map<String, dynamic>>());
+      final hit = hits.single as Map<String, dynamic>;
+      expect(hit['name'], 'topLevelFn');
+      expect(hit['kind'], 'function');
       expect(searchRes, isNotNull); // parâmetro paginado aceito
 
       final stats = await runTool(CodeIndexStatsTool(store), {});
