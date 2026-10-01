@@ -26,6 +26,7 @@ import '../infrastructure/search/code_index_store.dart';
 import '../infrastructure/search/code_index_tools.dart';
 import '../infrastructure/search/vector_index_store.dart';
 import '../infrastructure/search/vector_index_tools.dart';
+import '../infrastructure/web/web_tools.dart';
 import '../infrastructure/provider/anthropic_provider.dart';
 import '../infrastructure/provider/openai_compatible_provider.dart';
 import '../infrastructure/provider/provider_contract.dart';
@@ -261,7 +262,18 @@ ToolRegistry buildFullToolRegistry(SqliteDb db,
     ..register(DebugEvaluateExpressionTool())
     ..register(DebugGetStackTool())
     ..register(DebugGetVariablesTool())
-    ..register(DebugAttachObservatoryTool());
+    ..register(DebugAttachObservatoryTool())
+    // web: busca/fetch/extração/citação/robots/sitemap REAIS (HttpClient)
+    ..register(WebSearchTool())
+    ..register(WebNewsSearchTool())
+    ..register(WebImageSearchTool())
+    ..register(WebDocSearchTool())
+    ..register(WebCodeSearchTool())
+    ..register(WebFetchPageTool())
+    ..register(WebExtractArticleTool())
+    ..register(WebCitationFormatTool())
+    ..register(WebRobotsCheckTool())
+    ..register(WebSitemapQueryTool());
 }
 
 /// Constrói o registro de provedores a partir das specs de settings.json +
