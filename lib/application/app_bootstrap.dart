@@ -13,6 +13,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../domain/tools/tool_contract.dart';
+import '../infrastructure/agent/agent_state_store.dart';
+import '../infrastructure/agent/agent_tools.dart';
 import '../infrastructure/checkpoint/checkpoint_store.dart';
 import '../infrastructure/checkpoint/checkpoint_tools.dart';
 import '../infrastructure/devtools/debug_tools.dart';
@@ -174,6 +176,7 @@ ToolRegistry buildFullToolRegistry(SqliteDb db,
   final codeIndex = CodeIndexStore(db);
   final vectors = VectorIndexStore(db, codeIndex);
   final checkpoints = CheckpointStore(db, dataDir: dataDir ?? defaultDataDir());
+  final agentState = AgentStateStore(db);
   final resolve = embedderResolver ?? () => null;
   return ToolRegistry()
     // filesystem
@@ -273,7 +276,20 @@ ToolRegistry buildFullToolRegistry(SqliteDb db,
     ..register(WebExtractArticleTool())
     ..register(WebCitationFormatTool())
     ..register(WebRobotsCheckTool())
-    ..register(WebSitemapQueryTool());
+    ..register(WebSitemapQueryTool())
+    // operação do agente (agent.* + todo.list): plano, tarefas com audit
+    // trail, reflexão, esclarecimento, resumo citado, compactação preservando
+    // originais e pedidos de aprovação — tudo persistido em SQLite real
+    ..register(AgentPlanCreateTool(agentState))
+    ..register(AgentPlanUpdateTool(agentState))
+    ..register(AgentTaskStartTool(agentState))
+    ..register(AgentTaskCompleteTool(agentState))
+    ..register(AgentReflectEvaluateTool(agentState))
+    ..register(AgentClarifyTool(agentState))
+    ..register(AgentContextSummarizeTool(agentState))
+    ..register(AgentHistoryCompactTool(agentState))
+    ..register(AgentApprovalRequestTool(agentState))
+    ..register(TodoListTool(agentState));
 }
 
 /// Constrói o registro de provedores a partir das specs de settings.json +

@@ -134,6 +134,13 @@ class _NoSettings implements SettingsGateway {
   Object? get(String key, {String? workspaceId}) => null;
 }
 
+class _MapSettings implements SettingsGateway {
+  const _MapSettings(this.values);
+  final Map<String, Object?> values;
+  @override
+  Object? get(String key, {String? workspaceId}) => values[key];
+}
+
 // ---------------- Provider fake com roteiros REALMENTE emitidos ----------
 
 class _ScriptedProvider implements LlmProvider {
@@ -445,5 +452,102 @@ void main() {
     expect(tool.executions, 3);
     expect(svc.stateOf(convId).runStatus, RunStatus.completed);
     await svc.dispose();
+  });
+
+  // ---------------- System prompt do agente ----------------
+
+  test('system prompt default é injetado como 1ª mensagem em todo turno',
+      () async {
+    final tool = _FsWriteTool();
+    final provider = _ScriptedProvider([
+      _TurnScript(toolCalls: [
+        ('fs.write_text', {'path': 'sp.txt', 'content': 'x'})
+      ]),
+      _TurnScript(textPieces: ['ok']),
+    ]);
+    final svc = ChatService(
+      db: db,
+      providers: ProviderRegistry()..register(provider),
+      tools: ToolRegistry()..register(tool),
+      workspaceRoots: [tmp.path],
+      sandbox: _RootSandbox(tmp.path),
+      settings: const _NoSettings(),
+    );
+    final convId = svc.createConversation(workspaceId: 'ws', title: 't');
+
+    await svc.send(
+        conversationId: convId,
+        modelId: 'fake-model',
+        userText: 'escreve',
+        context: const []);
+
+    for (final turn in provider.receivedContexts) {
+      expect(turn.first.role, 'system');
+      expect(turn.first.content, kDefaultAgentSystemPrompt);
+      expect(turn.first.content, contains('agent.plan.create'));
+      expect(turn.first.content, contains('todo.list'));
+    }
+    await svc.dispose();
+  });
+
+  test('setting agentSystemPrompt tem precedência; vazio desativa; sem duplicar',
+      () async {
+    final provider = _ScriptedProvider([_TurnScript(textPieces: ['oi'])]);
+    final svc = ChatService(
+      db: db,
+      providers: ProviderRegistry()..register(provider),
+      settings: const _MapSettings({
+        'agentSystemPrompt': 'PROMPT CUSTOMIZADO VIA SETTINGS',
+      }),
+    );
+    final convId = svc.createConversation(workspaceId: 'ws', title: 't');
+    await svc.send(
+        conversationId: convId,
+        modelId: 'fake-model',
+        userText: 'olá',
+        context: const []);
+    expect(provider.receivedContexts.single.first.role, 'system');
+    expect(provider.receivedContexts.single.first.content,
+        'PROMPT CUSTOMIZADO VIA SETTINGS');
+    await svc.dispose();
+
+    // Contexto que já traz system não recebe segundo system (sem duplicata).
+    final provider2 = _ScriptedProvider([_TurnScript(textPieces: ['oi'])]);
+    final svc2 = ChatService(
+      db: db,
+      providers: ProviderRegistry()..register(provider2),
+      settings: const _NoSettings(),
+    );
+    final convId2 = svc2.createConversation(workspaceId: 'ws', title: 't');
+    await svc2.send(
+        conversationId: convId2,
+        modelId: 'fake-model',
+        userText: 'olá',
+        context: const [
+          ChatRequestMessage(role: 'system', content: 'SYSTEM DO CALLER')
+        ]);
+    final msgs = provider2.receivedContexts.single;
+    expect(msgs.where((m) => m.role == 'system').length, 1);
+    expect(msgs.first.content, 'SYSTEM DO CALLER');
+    await svc2.dispose();
+
+    // systemPrompt = '' no serviço desativa a injeção.
+    final provider3 = _ScriptedProvider([_TurnScript(textPieces: ['oi'])]);
+    final svc3 = ChatService(
+      db: db,
+      providers: ProviderRegistry()..register(provider3),
+      settings: const _NoSettings(),
+      systemPrompt: '',
+    );
+    final convId3 = svc3.createConversation(workspaceId: 'ws', title: 't');
+    await svc3.send(
+        conversationId: convId3,
+        modelId: 'fake-model',
+        userText: 'olá',
+        context: const []);
+    expect(
+        provider3.receivedContexts.single.every((m) => m.role != 'system'),
+        isTrue);
+    await svc3.dispose();
   });
 }
