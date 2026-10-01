@@ -111,8 +111,6 @@ class ChatService {
   })  : repo = ChatRepository(db),
         _tools = tools,
         workspaceRoots = workspaceRoots,
-        _sandbox = sandbox,
-        _settings = settings,
         _toolExecutor = tools == null
             ? null
             : ToolExecutor(
@@ -140,7 +138,7 @@ class ChatService {
   ApprovalGateway? get approvalGateway => _toolExecutor?.approvalGateway;
 
   /// Raízes do workspace para o ToolContext (sandbox real por conversa).
-  final List<String workspaceRoots;
+  final List<String> workspaceRoots;
 
   /// Capacidades presentes no host (ex.: {'filesystem','git'}); tools que
   /// exigem capacidade ausente nem vão ao prompt do modelo.
@@ -505,4 +503,50 @@ class ChatService {
     _activeHandles.clear();
     await _stateCtrl.close();
   }
+}
+
+/// Resultado acumulado de um turno assistente dentro do tool loop.
+class _AssistantTurn {
+  const _AssistantTurn({
+    required this.text,
+    required this.toolCalls,
+    required this.usage,
+    required this.failure,
+    required this.cancelled,
+  });
+
+  final String text;
+  final List<ToolCallStartChunk> toolCalls;
+  final TokenUsage usage;
+  final VtFailure? failure;
+  final bool cancelled;
+}
+
+/// Sandbox default seguro: NEGA qualquer path fora das raízes do workspace e
+/// qualquer domínio externo. Sem sandbox real configurado, tools de FS/HTTP
+/// falham com `path_out_of_sandbox` em vez de tocar o disco escondido.
+class _DenyAllSandbox implements SandboxGateway {
+  const _DenyAllSandbox();
+
+  @override
+  Future<String> resolveReadable(String rawPath, ToolContext ctx) async {
+    throw VtFailure.pathOutOfSandbox(rawPath);
+  }
+
+  @override
+  Future<String> resolveWritable(String rawPath, ToolContext ctx) async {
+    throw VtFailure.pathOutOfSandbox(rawPath);
+  }
+
+  @override
+  bool isAllowedDomain(String domain, ToolContext ctx) => false;
+}
+
+/// Settings vazio: sem gateway real, nenhuma chave existe (tools que exigem
+/// configuração falham de forma explícita, nunca assumem defaults escondidos).
+class _EmptySettings implements SettingsGateway {
+  const _EmptySettings();
+
+  @override
+  Object? get(String key, {String? workspaceId}) => null;
 }

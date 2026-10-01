@@ -8,7 +8,7 @@ void main() {
     }
   }
 
-  probe('inline (?i)', () => RegExp(r'(?i)abc'));
+  probe('case-insensitive', () => RegExp('abc', caseSensitive: false));
   probe('caseSensitive:false', () => RegExp('abc', caseSensitive: false));
   probe('\\s', () => RegExp(r'a\sb'));
   probe('[a-z._\\-]', () => RegExp(r'[a-z._\-]+'));
