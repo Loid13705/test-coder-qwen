@@ -15,12 +15,22 @@ environment:
 # - Pacotes que exigem o Flutter SDK (riverpod, go_router, file_picker,
 #   flutter_secure_storage, window_manager etc.) ficam listados em
 #   `flutter_deps_commented.yaml` e são ativados ao rodar `flutter pub get`
-#   em um ambiente com o Flutter SDK instalado. Assim o repositório compila e a
-#   suíte de testes (incluindo mock_zero_check) roda apenas com o Dart SDK.
+#   em um ambiente com o Flutter SDK instalado. A camada de apresentação já
+#   está ativa (flutter + flutter_riverpod); o núcleo continua rodando os
+#   testes (incluindo mock_zero_check) com qualquer SDK, pois não importa
+#   pacotes Flutter em lib/domain, lib/application ou lib/infrastructure.
 dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1      # estado global (appScope..agentScope)
   crypto: ^3.0.3
   ffi: ^2.1.0
 
 dev_dependencies:
+  flutter_test:
+    sdk: flutter
   test: ^1.25.0
   lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
