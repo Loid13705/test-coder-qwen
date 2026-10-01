@@ -74,14 +74,15 @@ void main() {
   });
 
   group('buildFullToolRegistry', () {
-    test('registra as 45 ferramentas reais (15 fs + 3 checkpoint + 15 git + 5 memória + 4 índice de código + 3 vetorial)',
-        () {
+    test('buildFullToolRegistry registra as 55 ferramentas reais '
+        '(15 fs + 3 checkpoint + 15 git + 5 memória + 4 índice de código + 3 '
+        'vetorial + 10 devtools)', () {
       if (!SqliteNative.available) return; // mesma guarda dos demais testes
       final db = SqliteNative.open('${tmp.path}/tools.db');
       addTearDown(db.close);
       final reg = buildFullToolRegistry(db);
       final ids = reg.all.map((t) => t.id).toList()..sort();
-      expect(ids.length, 45);
+      expect(ids.length, 55);
       for (final must in [
         'fs.read_text',
         'fs.write_text',
@@ -89,6 +90,16 @@ void main() {
         'git.commit',
         'memory.save',
         'memory.search',
+        'pub.get',
+        'pub.add',
+        'pub.outdated',
+        'flutter.doctor',
+        'flutter.run',
+        'flutter.build_apk',
+        'flutter.build_web',
+        'flutter.test',
+        'ci.pipeline_trigger',
+        'release.create',
       ]) {
         expect(reg.contains(must), isTrue, reason: 'faltando $must');
       }

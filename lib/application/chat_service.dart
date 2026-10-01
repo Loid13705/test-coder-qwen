@@ -317,6 +317,9 @@ class ChatService {
         allOutcomes[tc.callId] = await _runTool(
             conversationId, tc, allOutcomes.values.toList());
         final o = allOutcomes[tc.callId]!;
+        // Grava o status REAL da tool no card persistido desta mensagem
+        // assistente (senão o histórico mostraria 'pending' para sempre).
+        _persistToolOutcome(turn.assistantId, tc.callId, o);
         convo.add(ChatRequestMessage(
             role: 'tool',
             toolCallId: tc.providerToolUseId ?? tc.callId,
@@ -539,6 +542,7 @@ class ChatService {
 /// Resultado acumulado de um turno assistente dentro do tool loop.
 class _AssistantTurn {
   const _AssistantTurn({
+    required this.assistantId,
     required this.text,
     required this.toolCalls,
     required this.usage,
@@ -546,6 +550,9 @@ class _AssistantTurn {
     required this.cancelled,
   });
 
+  /// Id da linha `messages` gravada para este turno — usado pelo tool loop
+  /// para atualizar o status real de cada tool call no card persistido.
+  final String assistantId;
   final String text;
   final List<ToolCallStartChunk> toolCalls;
   final TokenUsage usage;

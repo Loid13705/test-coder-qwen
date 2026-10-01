@@ -15,6 +15,7 @@ import 'dart:io';
 import '../domain/tools/tool_contract.dart';
 import '../infrastructure/checkpoint/checkpoint_store.dart';
 import '../infrastructure/checkpoint/checkpoint_tools.dart';
+import '../infrastructure/devtools/dev_tools.dart';
 import '../infrastructure/fs/fs_tools.dart';
 import '../infrastructure/git/git_tools.dart';
 import '../infrastructure/native/memory_store.dart';
@@ -223,7 +224,19 @@ ToolRegistry buildFullToolRegistry(SqliteDb db,
     // índice vetorial / busca semântica (degrada p/ lexical sem embedder)
     ..register(CodeIndexEmbedTool(vectors, resolve))
     ..register(CodeIndexSemanticSearchTool(vectors, resolve))
-    ..register(CodeIndexVectorStatsTool(vectors, resolve));
+    ..register(CodeIndexVectorStatsTool(vectors, resolve))
+    // cadeia de desenvolvimento: pub / flutter / ci / release (binários reais;
+    // health tipado degrada honestamente quando dart/flutter/git ausentes)
+    ..register(PubGetTool())
+    ..register(PubAddTool())
+    ..register(PubOutdatedTool())
+    ..register(FlutterDoctorTool())
+    ..register(FlutterRunTool())
+    ..register(FlutterBuildApkTool())
+    ..register(FlutterBuildWebTool())
+    ..register(FlutterTestTool())
+    ..register(CiPipelineTriggerTool())
+    ..register(ReleaseCreateTool());
 }
 
 /// Constrói o registro de provedores a partir das specs de settings.json +
