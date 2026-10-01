@@ -243,7 +243,7 @@ class ToolExecutor {
         }
       } on TimeoutException {
         lastFailure = VtFailure.timeout(tool.timeout);
-        lastText = lastFailure!.message;
+        lastText = lastFailure.message;
       } on VtFailure catch (f) {
         lastFailure = f;
         lastText = f.message;
@@ -251,7 +251,7 @@ class ToolExecutor {
       }
       if (failed) break;
       if (attempt < maxAttempts) {
-        await Future.delayed(tool.retryPolicy.backoff * attempt);
+        await Future<void>.delayed(tool.retryPolicy.backoff * attempt);
       }
     }
 

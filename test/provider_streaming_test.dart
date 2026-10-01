@@ -414,7 +414,7 @@ void main() {
   group('wire protocols alternativos (gateways/proxies)', () {
     test('anthropicMessages: parseia envelope SSE nativo via gateway',
         () async {
-      final (server, requests) = await _startServer((req) async {
+      final (server: server, requests: requests) = await _startServer((req) async {
         req.response.headers.contentType =
             ContentType('text', 'event-stream', charset: 'utf-8');
         String ev(Map<String, Object?> m) => 'data: ${jsonEncode(m)}\n\n';
@@ -480,7 +480,7 @@ void main() {
     });
 
     test('textCompletions: stream legado com choices[].text', () async {
-      final (server, requests) = await _startServer((req) async {
+      final (server: server, requests: requests) = await _startServer((req) async {
         req.response.headers.contentType =
             ContentType('text', 'event-stream', charset: 'utf-8');
         req.response.write(
