@@ -6,6 +6,7 @@
 /// storage reporta `missing_binary` real — nunca cai em memória fingida.
 library;
 
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -247,35 +248,134 @@ class ChatRepository {
     // REFERENCES do schema é decorativo.
     db.execute('PRAGMA foreign_keys = ON');
     db.execute(kChatSchema);
+    // Migra colunas de metadados (pinned/tags/folder/archived_at/deleted_at)
+    // em bancos criados por versões antigas do schema. Cada ALTER falha se a
+    // coluna já existe — o erro é engolido POR ESSE MOTIVO verificado, não
+    // para esconder falha real: no fim, um SELECT que toque todas as colunas
+    // prova que o schema ficou completo (senão a exceção original propaga).
+    for (final m in kChatMigrations) {
+      try {
+        db.execute(m);
+      } catch (e) {
+        try {
+          db.query(
+              'SELECT pinned, tags, folder, archived_at, deleted_at'
+              ' FROM conversations LIMIT 0');
+        } catch (_) {
+          throw e;
+        }
+      }
+    }
   }
 
   final SqliteDb db;
 
   static int _toInt(Object? v) => v is int ? v : int.tryParse('$v') ?? 0;
 
+  static String _now() => DateTime.now().toUtc().toIso8601String();
+
   String createConversation(
-      {required String workspaceId, required String title, String? parentId}) {
-    final now = DateTime.now().toUtc().toIso8601String();
+      {required String workspaceId,
+      required String title,
+      String? parentId,
+      String folder = ''}) {
+    final now = _now();
     final id = 'conv_${DateTime.now().microsecondsSinceEpoch}';
     // Bind paramétrico: texto do usuário NUNCA é interpolado na SQL.
     db.execute(
-        "INSERT INTO conversations (id, workspace_id, title, parent_id, status, created_at, updated_at)"
-        " VALUES (?,?,?,?,?,?,?)",
-        [id, workspaceId, title, parentId ?? '', 'active', now, now]);
+        "INSERT INTO conversations (id, workspace_id, title, parent_id,"
+        " folder, status, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?)",
+        [id, workspaceId, title, parentId ?? '', folder, 'active', now, now]);
     return id;
   }
 
   void touchConversation(String id) => db.execute(
-      "UPDATE conversations SET updated_at=? WHERE id=?",
-      [DateTime.now().toUtc().toIso8601String(), id]);
+      "UPDATE conversations SET updated_at=? WHERE id=?", [_now(), id]);
 
-  List<Map<String, Object?>> listConversations(String workspaceId,
-          {int limit = 50}) =>
+  /// Lista conversas ATIVAS de um workspace (ou todas, com `includeAllWs`),
+  /// pinadas primeiro, depois por atividade. `deleted_at IS NULL` também é
+  /// imposto defensivamente: o CHECK de status cobre, mas dados antigos de
+  /// outras versões não podem vazar para a lixeira da UI.
+  List<Map<String, Object?>> listConversations(String? workspaceId,
+          {int limit = 200, bool includeAllWs = false}) =>
       db.query(
-          "SELECT id, workspace_id, title, parent_id, created_at FROM conversations"
-          " WHERE workspace_id=? AND status='active'"
-          " ORDER BY updated_at DESC LIMIT ${_toInt(limit)}",
-          [workspaceId]);
+          "SELECT id, workspace_id, title, parent_id, pinned, tags, folder,"
+          " created_at, updated_at FROM conversations"
+          " WHERE status='active' AND deleted_at IS NULL"
+          " ${includeAllWs || workspaceId == null ? '' : 'AND workspace_id=?'}"
+          " ORDER BY pinned DESC, updated_at DESC LIMIT ${_toInt(limit)}",
+          includeAllWs || workspaceId == null ? const [] : [workspaceId]);
+
+  List<Map<String, Object?>> listArchivedConversations(String? workspaceId,
+          {int limit = 200, bool includeAllWs = false}) =>
+      db.query(
+          "SELECT id, workspace_id, title, parent_id, pinned, tags, folder,"
+          " created_at, updated_at, archived_at FROM conversations"
+          " WHERE status='archived' AND deleted_at IS NULL"
+          " ${includeAllWs || workspaceId == null ? '' : 'AND workspace_id=?'}"
+          " ORDER BY archived_at DESC LIMIT ${_toInt(limit)}",
+          includeAllWs || workspaceId == null ? const [] : [workspaceId]);
+
+  List<Map<String, Object?>> listDeletedConversations(String? workspaceId,
+          {int limit = 200, bool includeAllWs = false}) =>
+      db.query(
+          "SELECT id, workspace_id, title, parent_id, pinned, tags, folder,"
+          " created_at, updated_at, deleted_at FROM conversations"
+          " WHERE status='deleted'"
+          " ${includeAllWs || workspaceId == null ? '' : 'AND workspace_id=?'}"
+          " ORDER BY deleted_at DESC LIMIT ${_toInt(limit)}",
+          includeAllWs || workspaceId == null ? const [] : [workspaceId]);
+
+  // ---------- Metadados reais (pin / tags / folder / rename) ----------
+
+  void setPinned(String id, bool pinned) => db.execute(
+      'UPDATE conversations SET pinned=?, updated_at=? WHERE id=?',
+      [pinned ? 1 : 0, _now(), id]);
+
+  void setFolder(String id, String folder) => db.execute(
+      'UPDATE conversations SET folder=?, updated_at=? WHERE id=?',
+      [folder, _now(), id]);
+
+  void setTags(String id, List<String> tags) => db.execute(
+      'UPDATE conversations SET tags=?, updated_at=? WHERE id=?',
+      [jsonEncode(tags), _now(), id]);
+
+  void renameConversation(String id, String title) => db.execute(
+      'UPDATE conversations SET title=?, updated_at=? WHERE id=?',
+      [title, _now(), id]);
+
+  // ---------- Archive / soft-delete / restore ----------
+
+  void setStatus(String id, String status) {
+    assert(const {'active', 'archived', 'deleted'}.contains(status));
+    // archived_at/deleted_at registram QUANDO cada coisa aconteceu (spec:
+    // restore mostra a data de arquivamento/exclusão na lixeira).
+    db.execute(
+        'UPDATE conversations SET status=?,'
+        ' archived_at=? , deleted_at=?, updated_at=? WHERE id=?',
+        [
+          status,
+          status == 'archived' ? _now() : null,
+          status == 'deleted' ? _now() : null,
+          _now(),
+          id,
+        ]);
+  }
+
+  void archiveConversation(String id) => setStatus(id, 'archived');
+  void softDeleteConversation(String id) => setStatus(id, 'deleted');
+  void restoreConversation(String id) {
+    db.execute(
+        "UPDATE conversations SET status='active', archived_at=NULL,"
+        " deleted_at=NULL, updated_at=? WHERE id=?",
+        [_now(), id]);
+  }
+
+  /// EXCLUSÃO PERMANENTE real (apaga a conversa e, via FK ON DELETE CASCADE
+  /// com `PRAGMA foreign_keys=ON` ativado nesta conexão, as mensagens dela).
+  void purgeConversation(String id) =>
+      db.execute('DELETE FROM conversations WHERE id=?', [id]);
 
   /// Insere mensagem com payload JSON já serializado pelo chamador.
   /// Bind paramétrico em todos os campos — nada de interpolação na SQL.

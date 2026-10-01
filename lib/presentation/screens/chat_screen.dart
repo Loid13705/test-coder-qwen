@@ -53,29 +53,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _stickToBottom();
     }
 
-    // Painel de conversas em Row aninhado (rail do vt_shell + este Row): sem
-    // altura finita, o ListView interno lançaria "Vertical viewport was given
-    // unbounded height". O Expanded abaixo garante bounded height;
-    // crossAxisAlignment.stretch mantém os dois lados com a mesma altura.
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // O painel de conversas NÃO mora mais aqui: é persistente no VtShell
+    // (direita da janela) e sobrevive à troca de seções. A tela Chat ocupa a
+    // área de conteúdo inteira.
+    return Column(
       children: [
-        _ConversationsPanel(onPick: (_) {}, width: 250),
-        const VerticalDivider(width: 1),
         Expanded(
-          child: Column(
-            children: [
-              Expanded(
-                child: convId == null
-                    ? const _EmptyChat()
-                    : _Timeline(
-                        convId: convId, scroll: _scroll, live: live),
-              ),
-              const Divider(height: 1),
-              const _Composer(),
-            ],
-          ),
+          child: convId == null
+              ? const _EmptyChat()
+              : _Timeline(convId: convId, scroll: _scroll, live: live),
         ),
+        const Divider(height: 1),
+        const _Composer(),
       ],
     );
   }
@@ -502,94 +491,6 @@ class _ComposerState extends ConsumerState<_Composer> {
                   label: const Text('Enviar'),
                 ),
             ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// Painel de conversas (reutilizado pela tela de workspaces)
-// ============================================================================
-
-class _ConversationsPanel extends ConsumerWidget {
-  const _ConversationsPanel(
-      {required this.onPick, this.width = 250});
-
-  final void Function(String conversationId) onPick;
-  final double width;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final data = ref.watch(conversationListProvider);
-    final current = ref.watch(currentConversationIdProvider);
-
-    return SizedBox(
-      width: width,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 6, 4),
-            child: Row(
-              children: [
-                Expanded(
-                    child: Text('Conversas',
-                        style: theme.textTheme.labelLarge)),
-                IconButton(
-                  iconSize: 16,
-                  tooltip: 'Nova conversa',
-                  onPressed: () {
-                    try {
-                      ref
-                          .read(conversationListProvider.notifier)
-                          .create('Nova conversa');
-                    } on VtFailure catch (f) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(f.message)));
-                    }
-                  },
-                  icon: const Icon(Icons.add_comment_outlined),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: data.items.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      data.workspaceId == null
-                          ? 'Abra um workspace em Workspaces para começar.'
-                          : 'Sem conversas ainda.',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  )
-                : ListView(
-                    children: [
-                      for (final row in data.items)
-                        ListTile(
-                          dense: true,
-                          selected: row['id'] == current,
-                          leading: const Icon(Icons.chat_bubble_outline,
-                              size: 15),
-                          title: Text('${row['title'] ?? '(sem título)'}',
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text('${row['created_at'] ?? ''}',
-                              maxLines: 1,
-                              style: theme.textTheme.labelSmall),
-                          onTap: () {
-                            ref
-                                .read(currentConversationIdProvider.notifier)
-                                .state = row['id'] as String;
-                            onPick(row['id'] as String);
-                          },
-                        ),
-                    ],
-                  ),
           ),
         ],
       ),

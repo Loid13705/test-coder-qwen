@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/errors/vt_failure.dart';
 import '../state/app_state.dart';
 import '../theme/vt_theme.dart';
+import '../widgets/conversations_panel.dart';
 import 'chat_screen.dart';
 import 'diagnostics_screen.dart';
 import 'memory_screen.dart';
@@ -27,6 +28,9 @@ class VtShell extends ConsumerStatefulWidget {
 }
 
 class _VtShellState extends ConsumerState<VtShell> {
+  /// Largura do painel de conversas (persistente na sessão; clamp 220..420).
+  double _panelWidth = 280;
+
   /// Contexto estável da raiz do shell para os dialogs de aprovação.
   BuildContext rootContext() => context;
 
@@ -48,8 +52,27 @@ class _VtShellState extends ConsumerState<VtShell> {
     // BootSuccess: núcleo real aberto.
     final workspace = ref.watch(focusedWorkspacePathProvider);
 
+    // Janela estreita → o painel de conversas vira drawer à direita em vez de
+    // espremer as seções (nenhum RenderFlex overflow por largura insuficiente).
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+
+    final content = switch (section) {
+      UiSection.chat => const ChatScreen(),
+      UiSection.workspaces => const WorkspacesScreen(),
+      UiSection.tools => const ToolsScreen(),
+      UiSection.memory => const MemoryScreen(),
+      UiSection.diagnostics => const DiagnosticsScreen(),
+      UiSection.settings => const SettingsScreen(),
+    };
+
+    final panel = ConversationsPanel(
+      width: (_panelWidth < 220 ? 220.0 : _panelWidth > 420 ? 420.0 : _panelWidth),
+    );
+
     return Scaffold(
+      endDrawer: wide ? null : _ConversationsDrawer(child: panel),
       body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _SideRail(
             section: section,
@@ -63,17 +86,67 @@ class _VtShellState extends ConsumerState<VtShell> {
                     .last,
           ),
           VerticalDivider(width: 1, color: vt.sidebar),
-          Expanded(
-            child: switch (section) {
-              UiSection.chat => const ChatScreen(),
-              UiSection.workspaces => const WorkspacesScreen(),
-              UiSection.tools => const ToolsScreen(),
-              UiSection.memory => const MemoryScreen(),
-              UiSection.diagnostics => const DiagnosticsScreen(),
-              UiSection.settings => const SettingsScreen(),
-            },
-          ),
+          Expanded(child: content),
+          // Painel lateral DIREITO persistente (spec §CHAT): vive no shell —
+          // trocar de seção não destrói a lista nem o scroll do painel.
+          if (wide) ...[
+            _PanelResizer(
+              onDrag: (dx) => setState(() {
+                final w = _panelWidth + dx;
+                _panelWidth = w.clamp(220.0, 420.0);
+              }),
+            ),
+            panel,
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// Divisória arrastável entre a área de conteúdo e o painel de conversas.
+class _PanelResizer extends StatelessWidget {
+  const _PanelResizer({required this.onDrag});
+  final ValueChanged<double> onDrag;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragUpdate: (d) => onDrag(-(d.primaryDelta ?? 0)),
+        child: Container(
+          width: 5,
+          color: Colors.transparent,
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: 1,
+            child: ColoredBox(color: theme.dividerColor),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Em janelas estreitas o painel mora num drawer direito com o MESMO widget
+/// (nada duplicado; só o contêiner muda).
+class _ConversationsDrawer extends StatelessWidget {
+  const _ConversationsDrawer({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Drawer(
+      width: 320,
+      backgroundColor: theme.colorScheme.surface,
+      child: SafeArea(
+        child: OrientationBuilder(
+          builder: (context, orientation) => child,
+        ),
       ),
     );
   }
