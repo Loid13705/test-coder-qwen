@@ -1,6 +1,8 @@
 /// Visualização de unified diff real (linhas +/-/@ vindas do tool loop).
 library;
 
+import 'dart:convert' show LineSplitter;
+
 import 'package:flutter/material.dart';
 
 import '../theme/vt_theme.dart';
@@ -23,7 +25,9 @@ class DiffView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final vt = VtTheme.of(context);
-    final lines = const LineSplitterAdapter().split(unifiedDiff);
+    final lines = unifiedDiff.isEmpty
+        ? const <String>[]
+        : const LineSplitter().convert(unifiedDiff.replaceAll('\r\n', '\n'));
 
     return Container(
       width: double.infinity,
@@ -95,9 +99,3 @@ class DiffView extends StatelessWidget {
   }
 }
 
-/// Splitter próprio para não depender de dart:convert aqui.
-class LineSplitterAdapter {
-  const LineSplitterAdapter();
-  List<String> split(String s) =>
-      s.isEmpty ? const [] : s.replaceAll('\r\n', '\n').split('\n');
-}

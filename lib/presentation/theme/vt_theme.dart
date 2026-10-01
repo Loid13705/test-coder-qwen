@@ -47,15 +47,13 @@ class VtColors extends ThemeExtension<VtColors> {
         panel: panel ?? this.panel,
         codeBackground: codeBackground ?? this.codeBackground,
         diffAddition: diffAddition ?? this.diffAddition,
-        diffDeletion: deletionsSafe(diffDeletion),
+        diffDeletion: diffDeletion ?? this.diffDeletion,
         riskLow: riskLow ?? this.riskLow,
         riskMedium: riskMedium ?? this.riskMedium,
         riskHigh: riskHigh ?? this.riskHigh,
         riskCritical: riskCritical ?? this.riskCritical,
         accent: accent ?? this.accent,
       );
-
-  Color deletionsSafe(Color? c) => c ?? diffDeletion;
 
   @override
   VtColors lerp(ThemeExtension<VtColors>? other, double t) {

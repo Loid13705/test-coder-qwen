@@ -7,10 +7,11 @@ library;
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/errors/vt_failure.dart';
 import '../theme/vt_theme.dart';
-import '../widgets/diff_view.dart';
+import 'diff_view.dart';
 
 /// Interpreta os blocos JSON persistidos pelo ChatService
 /// (`{'type': ...}`, mesma convenção do repository) em widgets reais.
@@ -89,7 +90,6 @@ class MarkdownLite extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final widgets = <Widget>[];
     var rest = text;
     while (rest.isNotEmpty) {
@@ -116,12 +116,8 @@ class MarkdownLite extends StatelessWidget {
         for (final w in widgets)
           Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: w),
       ],
-    ).applyTypography(theme);
+    );
   }
-}
-
-extension on Column {
-  Column applyTypography(ThemeData theme) => this;
 }
 
 /// Texto markdown inline simples: linhas com #, -, e **negrito**.
@@ -131,17 +127,17 @@ class _InlineMarkdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final lines = const LineSplitter().convert(source);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final line in lines) _line(line, theme),
+        for (final line in lines) _line(line),
       ],
     );
   }
 
-  Widget _line(String line, ThemeData theme) {
+  Widget _line(String line) {
+    final theme = Theme.of(context);
     if (line.startsWith('### ')) {
       return Text(line.substring(4), style: theme.textTheme.titleSmall);
     }
@@ -243,8 +239,14 @@ class CodeCard extends StatelessWidget {
                   tooltip: 'Copiar',
                   icon: const Icon(Icons.copy),
                   onPressed: () async {
-                    await context
-                        .readClipboard(code, context: context);
+                    await Clipboard.setData(ClipboardData(text: code));
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('Código copiado'),
+                          behavior: SnackBarBehavior.floating,
+                          width: 240),
+                    );
                   },
                 ),
               ],
