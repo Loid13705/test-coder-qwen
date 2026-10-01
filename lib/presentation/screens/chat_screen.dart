@@ -276,7 +276,7 @@ class _LiveToolCallCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 3),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        border: Border.all(color: color.withValues(alpha: 0.6)),
+        border: Border.all(color: color.withOpacity(0.6)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
@@ -400,6 +400,7 @@ class _ComposerState extends ConsumerState<_Composer> {
   @override
   Widget build(BuildContext context) {
     final vt = VtTheme.of(context);
+    final theme = Theme.of(context);
     final stateAsync = ref.watch(focusedConversationStateProvider);
     final busy =
         (stateAsync.valueOrNull ?? const ConversationState(runStatus: RunStatus.idle)).isBusy;
@@ -413,7 +414,8 @@ class _ComposerState extends ConsumerState<_Composer> {
         children: [
           Row(
             children: [
-              Icon(Icons.model_training, size: 14, color: context.iconTheme.color),
+              Icon(Icons.model_training,
+                  size: 14, color: theme.iconTheme.color),
               const SizedBox(width: 6),
               Expanded(
                 child: DropdownButtonHideUnderline(

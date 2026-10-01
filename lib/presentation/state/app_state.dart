@@ -18,7 +18,6 @@ import '../../application/approval.dart';
 import '../../application/chat_service.dart';
 import '../../application/tool_registry.dart';
 import '../../domain/errors/vt_failure.dart';
-import '../../domain/models/pagination.dart';
 import '../../infrastructure/native/chat_records.dart';
 import '../../infrastructure/provider/provider_contract.dart';
 import '../dialogs/approval_dialog.dart';
@@ -72,6 +71,12 @@ final pendingWorkspaceRootsProvider =
 class BootNotifier extends Notifier<BootResult> {
   @override
   BootResult build() => const Booting();
+
+  /// Injeta um resultado de boot determinístico em testes de widget (a UI do
+  /// gate é idêntica à produzida por `bootstrapStrict` — mesma hierarquia
+  /// [BootResult], mesmo [VtFailure] tipado). Em produção ninguém chama isto.
+  @visibleForTesting
+  void debugSetState(BootResult result) => state = result;
 
   /// Boot real chamado pelo splash ANTES de publicar [vtAppProvider].
   Future<void> bootstrapStrict({

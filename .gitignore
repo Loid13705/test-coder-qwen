@@ -1,1 +1,6 @@
-(empty)
+# Dart/Flutter build artifacts
+.dart_tool/
+build/
+
+# Compiled files
+*.snapshot

@@ -188,7 +188,7 @@ class _RailItem extends StatelessWidget {
     final theme = Theme.of(context);
     final vt = VtTheme.of(context);
     return Material(
-      color: selected ? vt.accent.withValues(alpha: 0.12) : Colors.transparent,
+      color: selected ? vt.accent.withOpacity(0.12) : Colors.transparent,
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -255,11 +255,17 @@ class _BootFailedView extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.dangerous_outline,
+                      Icon(Icons.report_gmailerrorred_outlined,
                           color: vt.riskCritical, size: 22),
                       const SizedBox(width: 8),
-                      Text('O app não abriu — falha real no boot',
-                          style: theme.textTheme.titleMedium),
+                      // Expanded + overflow elíptico: título nunca estoura a
+                      // largura do card em janelas estreitas (crash de layout
+                      // em testes/resize é inaceitável numa plataforma que se
+                      // diz soberana).
+                      const Expanded(
+                        child: Text('O app não abriu — falha real no boot',
+                            overflow: TextOverflow.ellipsis),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),

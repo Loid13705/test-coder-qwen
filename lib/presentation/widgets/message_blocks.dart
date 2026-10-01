@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../domain/errors/vt_failure.dart';
+import '../../application/chat_service.dart' show ToolCallStatus;
 import '../theme/vt_theme.dart';
 import 'diff_view.dart';
 
@@ -131,12 +132,12 @@ class _InlineMarkdown extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final line in lines) _line(line),
+        for (final line in lines) _line(context, line),
       ],
     );
   }
 
-  Widget _line(String line) {
+  Widget _line(BuildContext context, String line) {
     final theme = Theme.of(context);
     if (line.startsWith('### ')) {
       return Text(line.substring(4), style: theme.textTheme.titleSmall);
@@ -154,19 +155,19 @@ class _InlineMarkdown extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('•  ', style: theme.textTheme.bodyMedium),
-            Expanded(child: _rich(line.substring(2), theme)),
+            Expanded(child: _rich(context, line.substring(2), theme)),
           ],
         ),
       );
     }
     if (line.trim().isEmpty) return const SizedBox(height: 4);
-    return _rich(line, theme);
+    return _rich(context, line, theme);
   }
 
   static final _bold = RegExp(r'\*\*([^*]+)\*\*');
   static final _code = RegExp(r'`([^`]+)`');
 
-  Widget _rich(String s, ThemeData theme) {
+  Widget _rich(BuildContext context, String s, ThemeData theme) {
     // Aplica negrito e code-span de forma sequencial simples.
     final spans = <InlineSpan>[];
     final combined =
@@ -187,7 +188,7 @@ class _InlineMarkdown extends StatelessWidget {
             style: TextStyle(
                 fontFamily: 'monospace',
                 backgroundColor:
-                    VtTheme.of(context).codeBackground.withValues(alpha: .8),
+                    VtTheme.of(context).codeBackground.withOpacity(.8),
                 color: VtTheme.of(context).accent)));
       }
       last = m.end;
@@ -308,7 +309,7 @@ class TerminalCard extends StatelessWidget {
                       style: const TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 12,
-                          fontWeight: FontWeight.w600))),
+                          fontWeight: FontWeight.w600)),
                 ),
                 if (exitCode != null)
                   Text('exit $exitCode',
@@ -328,6 +329,121 @@ class TerminalCard extends StatelessWidget {
                 maxLines: 15,
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Card de tool call persistido (bloco `tool_call` do ChatService).
+///
+/// Renderiza exatamente o status gravado no banco (`ToolCallStatus.name`);
+/// nunca infere sucesso — status ausente/inválido vira 'desconhecido'.
+class ToolCallCard extends StatelessWidget {
+  const ToolCallCard({
+    super.key,
+    required this.callId,
+    required this.toolId,
+    required this.argsJson,
+    required this.statusWire,
+  });
+
+  final String callId;
+  final String toolId;
+  final String argsJson;
+  final String statusWire;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final vt = VtTheme.of(context);
+    final status = ToolCallStatus.values.firstWhere(
+      (s) => s.name == statusWire,
+      orElse: () => ToolCallStatus.pending,
+    );
+    final known = ToolCallStatus.values.any((s) => s.name == statusWire);
+    final (icon, color, label) = switch (status) {
+      ToolCallStatus.pending => (
+          Icons.hourglass_empty,
+          theme.hintColor,
+          'aguardando aprovação'
+        ),
+      ToolCallStatus.approved => (
+          Icons.check_circle_outline,
+          vt.riskLow,
+          'aprovada'
+        ),
+      ToolCallStatus.executing => (
+          Icons.play_circle_outline,
+          vt.accent,
+          'executando…'
+        ),
+      ToolCallStatus.succeeded => (
+          Icons.task_alt,
+          vt.riskLow,
+          'concluída'
+        ),
+      ToolCallStatus.failed => (
+          Icons.error_outline,
+          vt.riskCritical,
+          'falhou'
+        ),
+      ToolCallStatus.blocked => (
+          Icons.block,
+          vt.riskHigh,
+          'bloqueada'
+        ),
+    };
+    // Args como JSON indentado quando parseável; cru caso contrário.
+    final prettyArgs = () {
+      try {
+        return const JsonEncoder.withIndent('  ').convert(jsonDecode(argsJson));
+      } catch (_) {
+        return argsJson;
+      }
+    }();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      decoration: BoxDecoration(
+        color: vt.codeBackground.withOpacity(0.5),
+        border: Border.all(color: color.withOpacity(0.6)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: ExpansionTile(
+        shape: const Border(),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        leading: Icon(icon, size: 16, color: color),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(toolId,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontFamily: 'monospace', fontSize: 12)),
+            ),
+            const SizedBox(width: 8),
+            Text(known ? label : 'status desconhecido ($statusWire)',
+                style:
+                    theme.textTheme.labelSmall?.copyWith(color: color)),
+          ],
+        ),
+        subtitle: Text(callId,
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.hintColor)),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SelectableText(
+                prettyArgs,
+                maxLines: 12,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -357,7 +473,7 @@ class ErrorCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: vt.diffDeletion.withValues(alpha: 0.35),
+        color: vt.diffDeletion.withOpacity(0.35),
         border: Border.all(color: vt.riskCritical),
         borderRadius: BorderRadius.circular(6),
       ),

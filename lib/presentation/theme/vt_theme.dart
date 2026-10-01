@@ -158,7 +158,7 @@ class VtTheme {
           borderSide: BorderSide(color: scheme.outlineVariant),
         ),
       ),
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: vt.sidebar,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -178,9 +178,7 @@ class VtTheme {
       ),
       navigationRailTheme: NavigationRailThemeData(
         backgroundColor: vt.sidebar,
-        indicatorColor: vt.accent.withValues(alpha: 0.18),
-        selectedLabelStyle: const TextStyle(fontSize: 11),
-        unselectedLabelStyle: const TextStyle(fontSize: 11),
+        indicatorColor: vt.accent.withOpacity(0.18),
       ),
       extensions: [vt],
     );

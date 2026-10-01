@@ -11,7 +11,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-class SecretStore {
+abstract class SecretStore {
   Future<String?> read(String providerId);
   Future<void> write(String providerId, String value);
   Future<void> delete(String providerId);
