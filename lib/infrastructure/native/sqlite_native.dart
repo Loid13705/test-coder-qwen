@@ -413,6 +413,20 @@ class ChatRepository {
     return _toInt(rows.first['c']);
   }
 
+  /// Atualiza blocos/status de uma mensagem persistida (usado pelo tool loop
+  /// para gravar o status REAL de cada tool call no histórico — sem isso o
+  /// card persistido ficaria eternamente 'pending'). Bind paramétrico.
+  void updateMessageBlocks(String id,
+      {required String blocksJson, String? status}) {
+    if (status == null) {
+      db.execute("UPDATE messages SET blocks_json=? WHERE id=?",
+          [blocksJson, id]);
+    } else {
+      db.execute("UPDATE messages SET blocks_json=?, status=? WHERE id=?",
+          [blocksJson, status, id]);
+    }
+  }
+
   /// Página cursor-based (mais recentes primeiro no SQL, devolvida em ordem
   /// cronológica). `beforeId` = cursor para carregar mais antigo.
   Page<MessageRecord> pageMessages(String conversationId,
