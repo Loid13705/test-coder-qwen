@@ -24,9 +24,11 @@ class MessageRecord {
         conversationId: r['conversation_id'] as String,
         role: r['role'] as String,
         createdAt: r['created_at'] as String,
-        blocks: (jsonDecode(r['blocks_json'] as String) as List)
+        // Forma canônica `'type'` mesmo que o writer tenha gravado `'kind'`
+        // (MessageBlock.toJson usa 'kind'; o stream do chat usa 'type').
+        blocks: normalizeStoredBlocks((jsonDecode(r['blocks_json'] as String) as List)
             .map((e) => (e as Map).cast<String, Object?>())
-            .toList(),
+            .toList()),
         status: r['status'] as String,
         // Colunas opcionais são gravadas como '' via bind paramétrico
         // (nunca NULL interpolado); normaliza '' de volta para null.
@@ -63,6 +65,11 @@ CREATE TABLE IF NOT EXISTS conversations (
   workspace_id TEXT NOT NULL,
   title TEXT NOT NULL,
   parent_id TEXT,
+  pinned INTEGER NOT NULL DEFAULT 0,
+  tags TEXT NOT NULL DEFAULT '[]',
+  folder TEXT NOT NULL DEFAULT '',
+  archived_at TEXT,
+  deleted_at TEXT,
   status TEXT NOT NULL DEFAULT 'active'
     CHECK (status IN ('active','archived','deleted')),
   created_at TEXT NOT NULL,
@@ -85,3 +92,27 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, id);
 ''';
+
+/// Migração idempotente (adiciona colunas que existam na spec mas não no DB
+/// criado por versões antigas do schema). `ALTER TABLE ADD COLUMN` é real e
+/// persiste os dados existentes.
+const kChatMigrations = [
+  "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE conversations ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+  "ALTER TABLE conversations ADD COLUMN folder TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE conversations ADD COLUMN archived_at TEXT",
+  "ALTER TABLE conversations ADD COLUMN deleted_at TEXT",
+];
+
+/// Normaliza a forma canônica de um bloco persistido: o writer aceita tanto
+/// `'type'` quanto `'kind'` como discriminador; o reader SEMPRE produz
+/// `'type'`, para a UI nunca precisar de dois caminhos.
+Map<String, Object?> normalizeStoredBlock(Map<String, Object?> b) {
+  if (b.containsKey('type')) return b;
+  final out = Map<String, Object?>.of(b);
+  out['type'] = b['kind'] as String? ?? 'text';
+  return out;
+}
+
+List<Map<String, Object?>> normalizeStoredBlocks(List<Map<String, Object?>> bs) =>
+    [for (final b in bs) normalizeStoredBlock(b)];
