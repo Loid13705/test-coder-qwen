@@ -43,12 +43,13 @@ class DiffView extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Row(
               children: [
-                Icon(Icons.diff_together, size: 16, color: vt.accent),
+                Icon(Icons.merge_call, size: 16, color: vt.accent),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: SelectableText(filePath,
-                      style: theme.textTheme.labelMedium,
-                      overflow: TextOverflow.ellipsis),
+                  child: Text(filePath,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium),
                 ),
                 Text('+$additions',
                     style: TextStyle(

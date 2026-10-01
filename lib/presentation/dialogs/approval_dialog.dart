@@ -166,7 +166,7 @@ class _ApprovalDialogState extends State<ApprovalDialog> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: (color ?? theme.colorScheme.surfaceContainerHighest)
-              .withValues(alpha: 0.25),
+              .withOpacity(0.25),
           border: Border.all(color: color ?? theme.dividerColor),
           borderRadius: BorderRadius.circular(20),
         ),

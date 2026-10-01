@@ -95,12 +95,11 @@ class _ProvidersCardState extends ConsumerState<_ProvidersCard> {
       ref.invalidate(vtAppProvider);
       ref.invalidate(healthReportProvider);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text(
             'Settings salvos. Reinicie a sessão do app (botão abaixo) para '
             'registrar os providers no núcleo.'),
-        action: SnackBarAction(
-            label: 'Reiniciar', onPressed: _rebootstrap),
+        action: SnackBarAction(label: 'Reiniciar', onPressed: _rebootstrap),
       ));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -179,16 +178,18 @@ class _ProvidersCardState extends ConsumerState<_ProvidersCard> {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  secretIds.contains(s.id)
-                      ? Icons.key_outlined
-                      : Icons.key_off_outlined,
-                  size: 15,
-                  color:
-                      secretIds.contains(s.id) ? vt.riskLow : vt.riskMedium,
-                  tooltip: secretIds.contains(s.id)
+                Tooltip(
+                  message: secretIds.contains(s.id)
                       ? 'chave definida (não exibida)'
                       : 'sem chave',
+                  child: Icon(
+                    secretIds.contains(s.id)
+                        ? Icons.key_outlined
+                        : Icons.key_off_outlined,
+                    size: 15,
+                    color:
+                        secretIds.contains(s.id) ? vt.riskLow : vt.riskMedium,
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.edit_outlined, size: 16),

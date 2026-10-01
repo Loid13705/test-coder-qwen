@@ -196,7 +196,7 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: vt.accent.withValues(alpha: 0.10),
+                      color: vt.accent.withOpacity(0.10),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -288,7 +288,7 @@ class _MemoryTile extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: vt.accent.withValues(alpha: 0.14),
+                  color: vt.accent.withOpacity(0.14),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(record.kind,

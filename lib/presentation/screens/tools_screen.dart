@@ -145,10 +145,10 @@ class _ToolTile extends StatelessWidget {
   final VtTool<ToolInput, ToolOutput> tool;
 
   Color _riskColor(VtColors vt) => switch (tool.risk) {
-        RiskLevel.low => vt.riskLow,
-        RiskLevel.medium => vt.riskMedium,
-        RiskLevel.high => vt.riskHigh,
-        RiskLevel.critical => vt.riskCritical,
+        RiskLevel.readOnly || RiskLevel.networkRead => vt.riskLow,
+        RiskLevel.localWrite || RiskLevel.execute => vt.riskMedium,
+        RiskLevel.externalWrite || RiskLevel.destructive => vt.riskHigh,
+        RiskLevel.secret || RiskLevel.privileged => vt.riskCritical,
       };
 
   String _approvalLabel(ApprovalPolicyMode m) => switch (m) {
@@ -349,9 +349,9 @@ class _Tag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: color.withOpacity(0.12),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.45)),
+        border: Border.all(color: color.withOpacity(0.45)),
       ),
       child: Text(label, style: TextStyle(fontSize: 11, color: color)),
     );

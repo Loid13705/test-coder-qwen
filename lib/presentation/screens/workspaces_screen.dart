@@ -189,7 +189,7 @@ class _WorkspaceRow extends StatelessWidget {
     final theme = Theme.of(context);
     final vt = VtTheme.of(context);
     return Material(
-      color: focused ? vt.accent.withValues(alpha: 0.08) : Colors.transparent,
+      color: focused ? vt.accent.withOpacity(0.08) : Colors.transparent,
       child: InkWell(
         onTap: onFocus,
         child: Padding(
@@ -268,9 +268,9 @@ class _Chip extends StatelessWidget {
       padding: EdgeInsets.symmetric(
           horizontal: dense ? 6 : 8, vertical: dense ? 1 : 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color.withOpacity(0.15),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
+        border: Border.all(color: color.withOpacity(0.5)),
       ),
       child: Text(label,
           style: TextStyle(fontSize: dense ? 10 : 11, color: color)),

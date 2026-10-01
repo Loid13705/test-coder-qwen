@@ -187,7 +187,7 @@ class _InlineMarkdown extends StatelessWidget {
             style: TextStyle(
                 fontFamily: 'monospace',
                 backgroundColor:
-                    VtTheme.of(context).codeBackground.withValues(alpha: .8),
+                    VtTheme.of(context).codeBackground.withOpacity(.8),
                 color: VtTheme.of(context).accent)));
       }
       last = m.end;
@@ -357,7 +357,7 @@ class ErrorCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: vt.diffDeletion.withValues(alpha: 0.35),
+        color: vt.diffDeletion.withOpacity(0.35),
         border: Border.all(color: vt.riskCritical),
         borderRadius: BorderRadius.circular(6),
       ),

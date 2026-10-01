@@ -276,7 +276,7 @@ class _LiveToolCallCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 3),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        border: Border.all(color: color.withValues(alpha: 0.6)),
+        border: Border.all(color: color.withOpacity(0.6)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(

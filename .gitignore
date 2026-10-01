@@ -1,1 +1,5 @@
-(empty)
+# Dart/Flutter build artifacts
+.dart_tool/
+
+# Dependencies (generated lock file is usually committed, but .dart_tool is ignored)
+# pubspec.lock should generally be committed for applications
