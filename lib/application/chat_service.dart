@@ -5,6 +5,9 @@
 ///   texto parcial que efetivamente chegou.
 /// - Persistência local-first em SQLite via ChatRepository, com paginação
 ///   cursor-based (Page<T>) — nada de estado apenas em memória fingindo carga.
+/// - Tool loop real: tool calls do stream são executados pelo ToolExecutor
+///   (aprovação + sandbox + timeout) e os resultados voltam ao modelo em
+///   turnos adicionais até a resposta final ou o limite de iterações.
 library;
 
 import 'dart:async';
@@ -12,11 +15,18 @@ import 'dart:convert';
 
 import '../domain/errors/vt_failure.dart';
 import '../domain/models/pagination.dart';
+import '../domain/tools/tool_contract.dart';
 import '../infrastructure/native/chat_records.dart';
 import '../infrastructure/native/sqlite_native.dart';
 import '../infrastructure/provider/provider_contract.dart';
+import 'approval.dart';
+import 'tool_executor.dart';
+import 'tool_registry.dart';
 
 enum RunStatus { idle, running, completed, failed, cancelled }
+
+/// Status por chamada de tool dentro de um turno assistente persistido.
+enum ToolCallStatus { pending, approved, executing, succeeded, failed, blocked }
 
 /// Estado observável de uma conversa no composer/UI. Imutável por emissão.
 class ConversationState {
@@ -24,6 +34,7 @@ class ConversationState {
     required this.runStatus,
     this.streamingText = '',
     this.pendingToolCalls = const [],
+    this.toolOutcomes = const {},
     this.lastUsage,
     this.lastError,
     this.providerLatencyMs,
@@ -34,6 +45,9 @@ class ConversationState {
   /// Texto parcial REAL recebido até agora (preservado em cancelamento).
   final String streamingText;
   final List<ToolCallStartChunk> pendingToolCalls;
+
+  /// callId → status real da execução (UI mostra spinner/check por tool).
+  final Map<String, ToolCallStatus> toolOutcomes;
   final TokenUsage? lastUsage;
   final VtFailure? lastError;
 
@@ -85,11 +99,63 @@ class ProviderRegistry {
 
 /// Serviço de chat: orquestra provider real + persistência local + streaming.
 class ChatService {
-  ChatService({required SqliteDb db, required this.providers})
-      : repo = ChatRepository(db);
+  ChatService({
+    required SqliteDb db,
+    required this.providers,
+    ToolRegistry? tools,
+    List<String workspaceRoots = const [],
+    SandboxGateway? sandbox,
+    SettingsGateway? settings,
+    ApprovalGateway? approvalGateway,
+    this.maxToolIterations = 8,
+  })  : repo = ChatRepository(db),
+        _toolExecutor = tools == null
+            ? null
+            : ToolExecutor(
+                registry: tools,
+                context: ToolContext(
+                  workspaceRoots: workspaceRoots,
+                  sandbox: sandbox ?? _denyAllSandbox,
+                  settings: settings ?? _emptySettings,
+                ),
+                db: db,
+                approvalGateway: approvalGateway,
+              ),
+        _tools = tools,
+        workspaceRoots = workspaceRoots,
+        _sandbox = sandbox,
+        _settings = settings;
 
   final ChatRepository repo;
   final ProviderRegistry providers;
+  final ToolRegistry? _tools;
+  ToolRegistry? get tools => _tools;
+
+  final ToolExecutor? _toolExecutor;
+
+  /// Gateway de aprovação da UI (null = sem UI: tools não-auto falham com
+  /// `approval_required` tipado, nunca executam escondido).
+  ApprovalGateway? get approvalGateway => _toolExecutor?.approvalGateway;
+
+  /// Raízes do workspace para o ToolContext (sandbox real por conversa).
+  final List<String workspaceRoots;
+  final SandboxGateway? _sandbox;
+  final SettingsGateway? _settings;
+
+  /// Capacidades presentes no host (ex.: {'filesystem','git'}); tools que
+  /// exigem capacidade ausente nem vão ao prompt do modelo.
+  Set<String>? availableCapabilities;
+
+  /// Limite de iterações do tool loop (spec: evita runaway do agente).
+  final int maxToolIterations;
+
+  Future<void> Function(String conversationId, ToolCallOutcome outcome)?
+      onToolExecuted;
+
+  /// Sandbox default NEGAR tudo: sem sandbox real configurado, tools de FS
+  /// falham com path_out_of_sandbox em vez de tocar o disco escondido.
+  static final _denyAllSandbox = _DenyAllSandbox();
+  static final _emptySettings = _EmptySettings();
 
   final _states = <String, ConversationState>{};
   final _stateCtrl = StreamController<(String, ConversationState)>.broadcast();
@@ -129,12 +195,16 @@ class ChatService {
 
   /// Envia a mensagem ao provider REAL e faz stream dos chunks. Erro do
   /// provider é erro real (VtFailure tipado) — nunca conteúdo fabricado.
+  ///
+  /// Com [tools] registrado, executa o tool loop: cada turno assistente com
+  /// tool calls é persistido, as tools são executadas de verdade (aprovação +
+  /// sandbox + auditoria) e os resultados voltam ao modelo como mensagens
+  /// `role: tool` até o modelo responder sem tools ou [maxToolIterations].
   Future<void> send({
     required String conversationId,
     required String modelId,
     required String userText,
     required List<ChatRequestMessage> context,
-    List<Map<String, Object?>> toolSchemas = const [],
     ChatRequestOptions options = const ChatRequestOptions(),
   }) async {
     final existing = _activeHandles[conversationId];
@@ -161,21 +231,118 @@ class ChatService {
       createdAt: nowIso,
     );
     repo.touchConversation(conversationId);
-    final assistantId = 'msg_${nowMicros + 1}';
 
     _emit(
         conversationId, const ConversationState(runStatus: RunStatus.running));
 
+    // Schemas reais do registro (allowlist/capacidades filtram o que vê).
+    final toolSchemas = _toolExecutor == null
+        ? const <Map<String, Object?>>[]
+        : tools!.schemasForPrompt(
+            allowedIds: options.allowedToolIds,
+            availableCapabilities: availableCapabilities,
+          );
+
+    final convo = List<ChatRequestMessage>.of(context);
+    convo.add(ChatRequestMessage(role: 'user', content: userText));
+
+    var usage = const TokenUsage();
+    final allOutcomes = <String, ToolCallOutcome>{};
+    var finishStatus = RunStatus.completed;
+    VtFailure? failure;
+    var msgSeq = nowMicros + 1;
+
+    for (var iteration = 0; iteration <= maxToolIterations; iteration++) {
+      final turn = await _streamOneTurn(
+        conversationId: conversationId,
+        provider: provider,
+        modelId: modelId,
+        messages: convo,
+        options: options,
+        toolSchemas: toolSchemas,
+        assistantId: 'msg_$msgSeq',
+        carryUsage: usage,
+      );
+      usage = turn.usage;
+      if (turn.failure != null) {
+        failure = turn.failure;
+        finishStatus = RunStatus.failed;
+        break;
+      }
+      if (turn.cancelled) {
+        finishStatus = RunStatus.cancelled;
+        break;
+      }
+      if (turn.toolCalls.isEmpty || iteration == maxToolIterations) {
+        finishStatus = RunStatus.completed;
+        break;
+      }
+
+      // Executa as tools de verdade e alimenta o próximo turno.
+      convo.add(ChatRequestMessage(
+          role: 'assistant',
+          content: turn.text.isEmpty
+              ? '[tool_calls]'
+              : '${turn.text}\n[tool_calls] ${jsonEncode([for (final tc in turn.toolCalls) {'callId': tc.callId, 'toolId': tc.toolId}])}'));
+      for (final tc in turn.toolCalls) {
+        allOutcomes[tc.callId] = await _runTool(
+            conversationId, tc, allOutcomes.values.toList());
+        final o = allOutcomes[tc.callId]!;
+        convo.add(ChatRequestMessage(
+            role: 'tool',
+            content: jsonEncode({
+              'call_id': tc.callId,
+              'tool_id': tc.toolId,
+              'ok': o.ok,
+              'result': o.resultText,
+            })));
+      }
+      msgSeq++;
+    }
+
+    final lastState = stateOf(conversationId);
+    _emit(
+        conversationId,
+        ConversationState(
+          runStatus: finishStatus,
+          streamingText: lastState.streamingText,
+          pendingToolCalls: lastState.pendingToolCalls,
+          toolOutcomes: {
+            for (final e in allOutcomes.entries)
+              e.key: switch (e.value.kind) {
+                ToolCallOutcomeKind.succeeded => ToolCallStatus.succeeded,
+                ToolCallOutcomeKind.blocked => ToolCallStatus.blocked,
+                ToolCallOutcomeKind.failed => ToolCallStatus.failed,
+              }
+          },
+          lastUsage: usage.total > 0 ? usage : null,
+          lastError: failure,
+          providerLatencyMs: lastState.providerLatencyMs,
+        ));
+  }
+
+  /// Um turno de streaming contra o provider; persiste exatamente o que
+  /// chegou (parcial preservado em cancel/falha).
+  Future<_AssistantTurn> _streamOneTurn({
+    required String conversationId,
+    required LlmProvider provider,
+    required String modelId,
+    required List<ChatRequestMessage> messages,
+    required ChatRequestOptions options,
+    required List<Map<String, Object?>> toolSchemas,
+    required String assistantId,
+    required TokenUsage carryUsage,
+  }) async {
     final textBuf = StringBuffer();
     final toolCalls = <ToolCallStartChunk>[];
-    var usage = const TokenUsage();
+    var usage = carryUsage;
     final sw = Stopwatch()..start();
     var ttftMs = 0;
 
     StreamHandle? h;
     final stream = provider.streamChat(
       modelId: modelId,
-      messages: context,
+      messages: messages,
       options: options,
       toolSchemas: toolSchemas,
       onHandle: (hh) => h = hh,
@@ -183,7 +350,7 @@ class ChatService {
     // O handle chega de forma síncrona via callback onHandle; registramos já.
     _activeHandles[conversationId] = h ?? StreamHandle.noop();
 
-    var finishStatus = RunStatus.completed;
+    var cancelled = false;
     VtFailure? failure;
     try {
       await for (final chunk in stream) {
@@ -197,6 +364,7 @@ class ChatService {
                   runStatus: RunStatus.running,
                   streamingText: textBuf.toString(),
                   pendingToolCalls: List.of(toolCalls),
+                  toolOutcomes: stateOf(conversationId).toolOutcomes,
                   lastUsage: usage.total > 0 ? usage : null,
                   providerLatencyMs: ttftMs,
                 ));
@@ -208,24 +376,21 @@ class ChatService {
                   runStatus: RunStatus.running,
                   streamingText: textBuf.toString(),
                   pendingToolCalls: List.of(toolCalls),
+                  toolOutcomes: stateOf(conversationId).toolOutcomes,
                   lastUsage: usage.total > 0 ? usage : null,
                   providerLatencyMs: ttftMs > 0 ? ttftMs : null,
                 ));
           case UsageChunk():
             usage = usage.merge(chunk);
           case DoneChunk(:final finishReason):
-            finishStatus =
-                finishReason == 'cancelled' || (h?.isCancelled ?? false)
-                    ? RunStatus.cancelled
-                    : RunStatus.completed;
+            cancelled = finishReason == 'cancelled' ||
+                (h?.isCancelled ?? false);
           case ErrorChunk():
             failure = chunk.failure;
-            finishStatus = RunStatus.failed;
         }
       }
     } on VtFailure catch (f) {
       failure = f;
-      finishStatus = RunStatus.failed;
     } finally {
       _activeHandles.remove(conversationId);
     }
@@ -239,6 +404,7 @@ class ChatService {
           'callId': tc.callId,
           'toolId': tc.toolId,
           'argsJson': tc.argsJson,
+          'status': ToolCallStatus.pending.name,
         },
       if (failure != null) {'type': 'error', ...failure.toJson()},
     ];
@@ -249,9 +415,9 @@ class ChatService {
       modelId: modelId,
       mode: 'chat',
       blocksJson: jsonEncode(blocks),
-      status: switch (finishStatus) {
-        RunStatus.cancelled => 'cancelled_partial',
-        RunStatus.failed => 'failed',
+      status: switch ((failure != null, cancelled)) {
+        (true, _) => 'failed',
+        (_, true) => 'cancelled_partial',
         _ => 'complete',
       },
       usageJson: usage.total > 0
@@ -263,15 +429,49 @@ class ChatService {
       createdAt: DateTime.now().toUtc().toIso8601String(),
     );
     repo.touchConversation(conversationId);
+
+    return _AssistantTurn(
+      text: textBuf.toString(),
+      toolCalls: toolCalls,
+      usage: usage,
+      failure: failure,
+      cancelled: cancelled,
+    );
+  }
+
+  Future<ToolCallOutcome> _runTool(String conversationId,
+      ToolCallStartChunk tc, List<ToolCallOutcome> done) async {
+    final ex = _toolExecutor!;
+    _setToolStatus(conversationId, tc.callId, ToolCallStatus.executing);
+    final outcome = await ex.run(
+      callId: tc.callId,
+      toolId: tc.toolId,
+      argsJson: tc.argsJson,
+      conversationId: conversationId,
+    );
+    _setToolStatus(conversationId, tc.callId, switch (outcome.kind) {
+      ToolCallOutcomeKind.succeeded => ToolCallStatus.succeeded,
+      ToolCallOutcomeKind.blocked => ToolCallStatus.blocked,
+      ToolCallOutcomeKind.failed => ToolCallStatus.failed,
+    });
+    final cb = onToolExecuted;
+    if (cb != null) await cb(conversationId, outcome);
+    return outcome;
+  }
+
+  void _setToolStatus(String conversationId, String callId,
+      ToolCallStatus status) {
+    final s = stateOf(conversationId);
     _emit(
         conversationId,
         ConversationState(
-          runStatus: finishStatus,
-          streamingText: textBuf.toString(),
-          pendingToolCalls: toolCalls,
-          lastUsage: usage.total > 0 ? usage : null,
-          lastError: failure,
-          providerLatencyMs: ttftMs > 0 ? ttftMs : null,
+          runStatus: s.runStatus,
+          streamingText: s.streamingText,
+          pendingToolCalls: s.pendingToolCalls,
+          toolOutcomes: {...s.toolOutcomes, callId: status},
+          lastUsage: s.lastUsage,
+          lastError: s.lastError,
+          providerLatencyMs: s.providerLatencyMs,
         ));
   }
 
