@@ -69,6 +69,14 @@ class UiApprovalGateway implements ApprovalGateway {
 final pendingWorkspaceRootsProvider =
     StateProvider<List<String>>((ref) => const []);
 
+@visibleForTesting
+extension BootNotifierTestAccess on BootNotifier {
+  /// Injeta um resultado de boot determinístico em testes de widget (a UI do
+  /// gate é idêntica à produzida por `bootstrapStrict` — mesma hierarquia
+  /// [BootResult], mesmo [VtFailure] tipado). Em produção ninguém chama isto.
+  void debugSetState(BootResult result) => state = result;
+}
+
 class BootNotifier extends Notifier<BootResult> {
   @override
   BootResult build() => const Booting();
