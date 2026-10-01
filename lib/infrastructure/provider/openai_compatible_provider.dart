@@ -141,14 +141,19 @@ OpenAiCompatWire? detectWireFromHost(String baseUrl) {
   return null; // desconhecido → UI pergunta
 }
 
-class OpenAiCompatibleProvider implements LlmProvider {
+class OpenAiCompatibleProvider implements LlmProvider, EmbeddingProvider {
   OpenAiCompatibleProvider(this.config,
       {SecretRedactor redactor = const SecretRedactor(),
-      this.wire = OpenAiCompatWire.chatCompletions})
+      this.wire = OpenAiCompatWire.chatCompletions,
+      this.embeddingModelId = 'text-embedding-3-small'})
       : _redactor = redactor;
 
   final ProviderConfig config;
   final OpenAiCompatWire wire;
+
+  @override
+  final String embeddingModelId;
+  EmbeddingCapabilities? _verifiedEmbeddings;
   final SecretRedactor _redactor;
   HttpClient? _client;
 
@@ -996,6 +1001,84 @@ class OpenAiCompatibleProvider implements LlmProvider {
           message: 'Conexão de streaming interrompida: ${e.message}',
           retryable: true);
     }
+  }
+
+  // ------------------------------------------------------ embeddings reais
+  // POST /embeddings no mesmo baseUrl/credencial do chat. Dimensões NUNCA
+  // são presumidas: só constam em [embeddingCapabilities] após uma chamada
+  // real de verificação (verifyEmbeddings).
+
+  @override
+  EmbeddingCapabilities get embeddingCapabilities =>
+      _verifiedEmbeddings ?? const EmbeddingCapabilities();
+
+  Future<List<List<double>>> _postEmbeddings(
+      List<String> texts, String model) async {
+    final pre = _preflight();
+    if (pre != null) throw pre;
+    final (status, body) = await _sendJson('embeddings', {
+      'model': model,
+      'input': texts,
+    });
+    if (status == 401 || status == 403) {
+      throw VtFailure.apiKeyMissing(config.id);
+    }
+    if (status == 429) throw VtFailure.rateLimited(config.id);
+    if (status < 200 || status >= 300) {
+      throw VtFailure(
+        code: VtErrorCode.networkUnavailable,
+        message: 'Endpoint de embeddings indisponível (HTTP $status): '
+            '${_redactor.redact(body)}',
+      );
+    }
+    final decoded = jsonDecode(body) as Map<String, Object?>;
+    final data = (decoded['data'] as List? ?? const [])
+        .cast<Map<String, Object?>>();
+    // ordem garantida por `index` (OpenAI-spec), não pela ordem de chegada
+    final byIndex = <int, List<double>>{};
+    for (final item in data) {
+      final idx = (item['index'] as num).toInt();
+      byIndex[idx] = ((item['embedding'] as List).cast<num>())
+          .map((e) => e.toDouble())
+          .toList(growable: false);
+    }
+    if (byIndex.length != texts.length) {
+      throw VtFailure(
+        code: VtErrorCode.networkUnavailable,
+        message: 'Resposta de embeddings incompleta: '
+            'esperados ${texts.length}, recebidos ${byIndex.length}.',
+      );
+    }
+    return List.generate(texts.length, (i) => byIndex[i]!);
+  }
+
+  @override
+  Future<EmbeddingCapabilities> verifyEmbeddings() async {
+    final v = await _postEmbeddings(['techvt embedding probe'], embeddingModelId);
+    final dims = v.first.length;
+    if (dims == 0) {
+      throw VtFailure(
+        code: VtErrorCode.networkUnavailable,
+        message: 'Endpoint retornou embedding vazio para "$embeddingModelId".',
+      );
+    }
+    return _verifiedEmbeddings = EmbeddingCapabilities(dimensions: dims);
+  }
+
+  @override
+  Future<List<List<double>>> embed({
+    required List<String> texts,
+    String? modelId,
+  }) async {
+    if (texts.isEmpty) return const [];
+    final model = modelId ?? embeddingModelId;
+    final out = <List<double>>[];
+    final batch = embeddingCapabilities.maxBatch.clamp(1, 2048);
+    for (var i = 0; i < texts.length; i += batch) {
+      out.addAll(await _postEmbeddings(
+          texts.sublist(i, (i + batch).clamp(0, texts.length)), model));
+    }
+    return out;
   }
 
   Future<void> dispose() async {

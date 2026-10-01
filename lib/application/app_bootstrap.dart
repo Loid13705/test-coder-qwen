@@ -20,8 +20,11 @@ import '../infrastructure/native/memory_tools.dart';
 import '../infrastructure/native/sqlite_native.dart';
 import '../infrastructure/search/code_index_store.dart';
 import '../infrastructure/search/code_index_tools.dart';
+import '../infrastructure/search/vector_index_store.dart';
+import '../infrastructure/search/vector_index_tools.dart';
 import '../infrastructure/provider/anthropic_provider.dart';
 import '../infrastructure/provider/openai_compatible_provider.dart';
+import '../infrastructure/provider/provider_contract.dart';
 import '../infrastructure/sandbox/sandbox.dart';
 import 'approval.dart';
 import 'chat_service.dart';
@@ -155,11 +158,16 @@ Future<SqliteDb> openLocalDb(String dataDir) async {
 }
 
 /// Registra TODAS as ferramentas reais disponíveis (15 FS + 15 Git + 5
-/// memória + 4 índice de código). A política de aprovação continua sendo do
-/// contrato de cada tool (write/exec exigem aprovação; reads são auto).
-ToolRegistry buildFullToolRegistry(SqliteDb db) {
+/// memória + 4 índice de código + 3 índice vetorial). A política de aprovação
+/// continua sendo do contrato de cada tool (write/exec exigem aprovação;
+/// reads são auto). [embedderResolver] pode retornar null (sem provider de
+/// embeddings configurado) — as tools vectoriais degradam honestamente.
+ToolRegistry buildFullToolRegistry(SqliteDb db,
+    {EmbeddingProvider? Function()? embedderResolver}) {
   final memory = MemoryStore(db);
   final codeIndex = CodeIndexStore(db);
+  final vectors = VectorIndexStore(db, codeIndex);
+  final resolve = embedderResolver ?? () => null;
   return ToolRegistry()
     // filesystem
     ..register(FsListTool())
@@ -203,7 +211,11 @@ ToolRegistry buildFullToolRegistry(SqliteDb db) {
     ..register(CodeIndexScanTool(codeIndex))
     ..register(CodeIndexSearchTool(codeIndex))
     ..register(CodeIndexStatsTool(codeIndex))
-    ..register(CodeIndexPurgeTool(codeIndex));
+    ..register(CodeIndexPurgeTool(codeIndex))
+    // índice vetorial / busca semântica (degrada p/ lexical sem embedder)
+    ..register(CodeIndexEmbedTool(vectors, resolve))
+    ..register(CodeIndexSemanticSearchTool(vectors, resolve))
+    ..register(CodeIndexVectorStatsTool(vectors, resolve));
 }
 
 /// Constrói o registro de provedores a partir das specs de settings.json +
