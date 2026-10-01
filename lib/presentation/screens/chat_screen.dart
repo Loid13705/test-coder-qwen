@@ -53,17 +53,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _stickToBottom();
     }
 
+    // Painel de conversas em Row aninhado (rail do vt_shell + este Row): sem
+    // altura finita, o ListView interno lançaria "Vertical viewport was given
+    // unbounded height". O Expanded abaixo garante bounded height;
+    // crossAxisAlignment.stretch mantém os dois lados com a mesma altura.
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _ConversationsPanel(onPick: (_) {}, width: 250),
-        VerticalDivider(width: 1),
+        const VerticalDivider(width: 1),
         Expanded(
           child: Column(
             children: [
               Expanded(
                 child: convId == null
                     ? const _EmptyChat()
-                    : _Timeline(convId: convId, scroll: _scroll, live: live),
+                    : _Timeline(
+                        convId: convId, scroll: _scroll, live: live),
               ),
               const Divider(height: 1),
               const _Composer(),
@@ -283,12 +289,17 @@ class _LiveToolCallCard extends StatelessWidget {
         children: [
           Icon(icon, size: 15, color: color),
           const SizedBox(width: 8),
-          Text(call.toolId,
-              style: const TextStyle(
-                  fontFamily: 'monospace', fontSize: 12)),
-          const Spacer(),
-          Text(label, style: theme.textTheme.labelSmall?.copyWith(
-              color: color)),
+          // toolId arbitrário (do provider) — Flexible+ellipsis para não
+          // estourar o card em janelas estreitas.
+          Flexible(
+            child: Text(call.toolId,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontFamily: 'monospace', fontSize: 12)),
+          ),
+          const SizedBox(width: 8),
+          Text(label,
+              style: theme.textTheme.labelSmall?.copyWith(color: color)),
         ],
       ),
     );
