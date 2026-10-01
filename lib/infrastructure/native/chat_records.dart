@@ -59,6 +59,11 @@ class MessageRecord {
   final Map<String, Object?>? usageJson;
 }
 
+/// Conversa global (não vinculada a workspace): sentinel de workspace_id.
+/// A UI do painel lateral oferece "Global" como pseudo-workspace; a
+/// listagem/criação usa este valor constante para essas conversas.
+const kGlobalConversationWorkspace = '*global*';
+
 const kChatSchema = '''
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
