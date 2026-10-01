@@ -198,7 +198,12 @@ class AnthropicProvider implements LlmProvider {
           out.add({
             'role': 'user',
             'content': [
-              {'type': 'tool_result', 'content': m.content}
+              {
+                'type': 'tool_result',
+                if (m.toolCallId != null) 'tool_use_id': m.toolCallId,
+                if (m.toolName != null) 'name': m.toolName,
+                'content': m.content,
+              }
             ]
           });
         default:
@@ -431,6 +436,7 @@ class AnthropicProvider implements LlmProvider {
                     : 'call_${DateTime.now().microsecondsSinceEpoch}',
                 toolId: blockNames[idx] ?? '',
                 argsJson: blockJson[idx]?.toString() ?? '{}',
+                providerToolUseId: blockIds[idx],
               ));
             }
           case 'message_delta':

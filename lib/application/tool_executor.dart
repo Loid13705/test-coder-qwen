@@ -296,14 +296,23 @@ class ToolExecutor {
     required int attempts,
   }) {
     final auditId = 'audit_${started.microsecondsSinceEpoch}_$callId';
+    // Parametrizado de verdade: nada de interpolar JSON/texto na SQL.
     db.execute(
-      "INSERT INTO tool_audit (id, ts, conversation_id, call_id, tool_id,"
-      " input_json, outcome, error_code, duration_ms, attempts)"
-      " VALUES ('${_esc(auditId)}','${_esc(started.toUtc().toIso8601String())}',"
-      "${conversationId == null ? 'NULL' : "'${_esc(conversationId)}'},"
-      "'${_esc(callId)}','${_esc(toolId)}','${_esc(inputJson)}',"
-      "'$outcome',${errorCode == null ? 'NULL' : "'${_esc(errorCode)}'"},"
-      ' ${sw.elapsedMilliseconds},$attempts)',
+      'INSERT INTO tool_audit (id, ts, conversation_id, call_id, tool_id,'
+      ' input_json, outcome, error_code, duration_ms, attempts)'
+      " VALUES (?,?,?,?,?,?,?,COALESCE(?,''),?,?)",
+      [
+        auditId,
+        started.toUtc().toIso8601String(),
+        conversationId ?? '',
+        callId,
+        toolId,
+        inputJson,
+        outcome,
+        errorCode ?? '',
+        '${sw.elapsedMilliseconds}',
+        '$attempts',
+      ],
     );
     return ToolCallOutcome(
       callId: callId,
@@ -320,8 +329,6 @@ class ToolExecutor {
       failure: failure,
     );
   }
-
-  static String _esc(String s) => s.replaceAll("'", "''");
 
   /// Auditoria persistida por conversa (UI "o que o agente fez").
   List<Map<String, Object?>> auditForConversation(String conversationId,

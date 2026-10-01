@@ -103,28 +103,30 @@ class ChatService {
     required SqliteDb db,
     required this.providers,
     ToolRegistry? tools,
-    List<String workspaceRoots = const [],
+    List<String> workspaceRoots = const [],
     SandboxGateway? sandbox,
     SettingsGateway? settings,
     ApprovalGateway? approvalGateway,
     this.maxToolIterations = 8,
   })  : repo = ChatRepository(db),
+        _tools = tools,
+        workspaceRoots = workspaceRoots,
+        _sandbox = sandbox,
+        _settings = settings,
         _toolExecutor = tools == null
             ? null
             : ToolExecutor(
                 registry: tools,
                 context: ToolContext(
                   workspaceRoots: workspaceRoots,
+                  // Sandbox default NEGAR tudo: sem sandbox real configurado,
+                  // tools de FS falham em vez de tocar o disco escondido.
                   sandbox: sandbox ?? _denyAllSandbox,
                   settings: settings ?? _emptySettings,
                 ),
                 db: db,
                 approvalGateway: approvalGateway,
-              ),
-        _tools = tools,
-        workspaceRoots = workspaceRoots,
-        _sandbox = sandbox,
-        _settings = settings;
+              );
 
   final ChatRepository repo;
   final ProviderRegistry providers;
@@ -139,8 +141,6 @@ class ChatService {
 
   /// Raízes do workspace para o ToolContext (sandbox real por conversa).
   final List<String workspaceRoots;
-  final SandboxGateway? _sandbox;
-  final SettingsGateway? _settings;
 
   /// Capacidades presentes no host (ex.: {'filesystem','git'}); tools que
   /// exigem capacidade ausente nem vão ao prompt do modelo.
@@ -290,9 +290,9 @@ class ChatService {
         final o = allOutcomes[tc.callId]!;
         convo.add(ChatRequestMessage(
             role: 'tool',
+            toolCallId: tc.providerToolUseId ?? tc.callId,
+            toolName: tc.toolId,
             content: jsonEncode({
-              'call_id': tc.callId,
-              'tool_id': tc.toolId,
               'ok': o.ok,
               'result': o.resultText,
             })));

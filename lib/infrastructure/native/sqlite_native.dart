@@ -115,14 +115,20 @@ class SqliteDb {
 
   String _lastError() => _errMsg(_handle).toDartString();
 
-  void execute(String sql) {
+  void execute(String sql, [List<String> params = const []]) {
     if (_closed) throw StateError('DB fechado');
-    using((Arena arena) {
-      final err = arena<Pointer<Utf8>>();
-      final rc = _exec(
-          _handle, sql.toNativeUtf8(allocator: arena), nullptr, nullptr, err);
-      if (rc != _sqliteOk) throw SqliteException(rc, _lastError());
-    });
+    // Sem parâmetros: caminho rápido via sqlite3_exec.
+    if (params.isEmpty) {
+      using((Arena arena) {
+        final err = arena<Pointer<Utf8>>();
+        final rc = _exec(
+            _handle, sql.toNativeUtf8(allocator: arena), nullptr, nullptr, err);
+        if (rc != _sqliteOk) throw SqliteException(rc, _lastError());
+      });
+      return;
+    }
+    // Com parâmetros: prepare/bind/step — nunca interpolar texto na SQL.
+    query(sql, params);
   }
 
   /// Executa query com parâmetros textuais posicionais e retorna linhas reais
