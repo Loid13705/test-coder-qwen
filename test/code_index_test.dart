@@ -82,28 +82,50 @@ void main() {
     test('casa classes/mixin/enum/typedef/funções/campos nas linhas certas',
         () {
       final syms = extractDartSymbols(_sampleA);
-      final byName = {for (final (n, k, l, _) in syms) n: (k, l)};
-      expect(byName['BaseThing']?.$1, 'class');
-      expect(byName['Widget']?.$1, 'class');
-      expect(byName['Loudly']?.$1, 'mixin');
-      expect(byName['Color']?.$1, 'enum');
-      expect(byName['Shape']?.$1, 'class'); // sealed class
-      expect(byName['Handler']?.$1, 'typedef');
-      expect(byName['topLevelFn']?.$1, 'function');
-      expect(byName['doWork']?.$1, 'function');
-      expect(byName['_privateHelper']?.$1, 'function');
-      expect(byName['toString']?.$1, 'function');
-      expect(byName['name']?.$1, 'field');
-      expect(byName['_instance']?.$1, 'field');
-      // construtor com inicializador `this.`: nome real da classe, kind
-      // correto (não o parâmetro nem uma função genérica).
-      expect(byName['BaseThing']?.$1, 'constructor');
+      // mapa (kind,nome) → linha: `BaseThing` aparece como class E como
+      // construtor — o dicionário por nome puro os sobrescreveria.
+      final byKindName = {
+        for (final s in syms) '${s.$2}:${s.$1}': s.$3,
+      };
+      String? kindOf(String name) =>
+          syms.where((s) => s.$1 == name).map((s) => s.$2).firstOrNull;
+      expect(kindOf('BaseThing'), 'class'); // declaração vence precedência
+      expect(byKindName.containsKey('constructor:BaseThing'), isTrue);
+      expect(kindOf('Widget'), 'class');
+      expect(kindOf('Loudly'), 'mixin');
+      expect(kindOf('Color'), 'enum');
+      expect(kindOf('Shape'), 'class'); // sealed class
+      expect(kindOf('Handler'), 'typedef');
+      expect(kindOf('topLevelFn'), 'function');
+      expect(kindOf('doWork'), 'function');
+      expect(kindOf('_privateHelper'), 'function');
+      expect(kindOf('toString'), 'function');
+      expect(kindOf('name'), 'field');
+      expect(kindOf('_instance'), 'field');
       // doc comment jamais vira símbolo
-      expect(byName.containsKey('Fake'), isFalse);
+      expect(syms.any((s) => s.$1 == 'Fake'), isFalse);
       // chamada solta (`print(x);`) é uso, não definição — nunca vira símbolo
       expect(syms.any((s) => s.$1 == 'print'), isFalse);
       // linha 1-based confere com o fonte (aqui: abstract class na linha 8)
-      expect(byName['BaseThing']?.$2, greaterThan(1));
+      expect(byKindName['class:BaseThing'], greaterThan(1));
+    });
+
+    test('construtor `Nome(this.x);` vira constructor; classe mantém kind', () {
+      final syms = extractDartSymbols('''
+class BaseThing {
+  final String name;
+  int counter = 0;
+
+  BaseThing(this.name);
+}
+''');
+      final byKey = {for (final (n, k, _, _) in syms) '$k:$n': n};
+      // a DECLARAÇÃO da classe vence precedência sobre o construtor
+      expect(byKey.containsKey('class:BaseThing'), isTrue);
+      // o construtor nomeado pela classe existe como kind próprio
+      expect(byKey.containsKey('constructor:BaseThing'), isTrue);
+      // e o parâmetro `this.name` não vira função separada
+      expect(syms.any((s) => s.$2 == 'function' && s.$1 == 'name'), isFalse);
     });
 
     test('não produz falsos positivos em statements de controle', () {

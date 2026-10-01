@@ -130,11 +130,9 @@ class ScanStats {
 /// por linha — a forma canônica do `dart format`. Semântica de escopo não
 /// é resolvida aqui: isso é trabalho do LSP, não deste índice lexical.
 final List<(RegExp, String)> kDartSymbolPatterns = [
-  // construtor com inicializadores `this.`: `BaseThing(this.name);` — o
-  // padrão genérico de função abaixo captura o parâmetro (`name`) como
-  // nome; este padrão mais específico roda primeiro e devolve o nome real
-  // da classe, classificando corretamente como constructor.
-  (RegExp(r'^\s*([A-Z][\w$]*)\s*\(\s*this\.[^)]*\)\s*[{:;=]'), 'constructor'),
+  // declarações estruturais SEMPRE primeiro: `class BaseThing {` casa no
+  // padrão de construtor (`Nome(` + `{`) se este vier depois — ordem é
+  // precedência.
   (RegExp(r'^\s*abstract\s+class\s+([A-Za-z_$][\w$]*)'), 'class'),
   (RegExp(r'^\s*(?:base\s+|final\s+|sealed\s+|interface\s+)*class\s+([A-Za-z_$][\w$]*)'),
       'class'),
@@ -143,11 +141,17 @@ final List<(RegExp, String)> kDartSymbolPatterns = [
   (RegExp(r'^\s*enum\s+([A-Za-z_$][\w$]*)'), 'enum'),
   (RegExp(r'^\s*extension(?:\s+type)?\s+([A-Za-z_$][\w$]*)'), 'extension'),
   (RegExp(r'^\s*typedef\s+([A-Za-z_$][\w$]*)'), 'typedef'),
+  // construtor com inicializadores `this.`: `BaseThing(this.name);` — o
+  // padrão genérico de função abaixo capturaria o parâmetro (`name`) como
+  // nome; este padrão mais específico roda antes dele e devolve o nome real
+  // da classe, classificando corretamente como constructor.
+  (RegExp(r'^\s*([A-Z][\w$]*)\s*\(\s*this\.[^)]*\)\s*[{:;=]'), 'constructor'),
   // função/método/construtor: nome seguido de lista de parâmetros até ')'
   (
     RegExp(
-        r'^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:static\s+|final\s+|const\s+|late\s+|factory\s+|external\s+|Future<void>|void)?\s*'
-        r'(?:[\w<>?, .]+\s+)?([A-Za-z_$][\w$]*)\s*\(([^{;]*)\)\s*(?:async\s*[a-z]*\s*)?[{;=]'),
+        r'^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:static\s+|final\s+|const\s+|late\s+|factory\s+|external\s+)?\s*'
+        r'(?:[\w<>?, .]+\s+)?([A-Za-z_$][\w$]*)\s*\((.*)\)\s*(?:async\s*)?[{;=]',
+        multiLine: false),
     'function'
   ),
 
