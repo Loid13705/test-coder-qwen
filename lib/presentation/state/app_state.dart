@@ -10,15 +10,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/app_bootstrap.dart';
 import '../../application/approval.dart';
 import '../../application/chat_service.dart';
+import '../../application/tool_registry.dart';
 import '../../domain/errors/vt_failure.dart';
 import '../../domain/models/pagination.dart';
 import '../../infrastructure/native/chat_records.dart';
+import '../../infrastructure/provider/provider_contract.dart';
 import '../dialogs/approval_dialog.dart';
 import '../secrets/secret_store.dart';
 
@@ -42,6 +44,25 @@ class BootSuccess extends BootResult {
 class BootFailed extends BootResult {
   const BootFailed(this.failure);
   final VtFailure failure;
+}
+
+/// Gateway de aprovação que abre o diálogo real da UI (spec §APROVAÇÃO).
+/// Sem resposta (janela fechada) = rejeitado — nunca aprovado por default.
+class UiApprovalGateway implements ApprovalGateway {
+  UiApprovalGateway(this._context);
+
+  /// Contexto da raiz do app (estável; dialogs vivem acima das rotas).
+  final BuildContext Function() _context;
+
+  @override
+  Future<ApprovalDecision> request(ApprovalRequest req) async {
+    final ctx = _context();
+    final decision = await showApprovalDialog(ctx, req);
+    // Fechou sem decidir: decisão explícita do usuário é REJEITAR.
+    return decision ??
+        const ApprovalDecision(ApprovalOutcome.rejected,
+            reason: 'diálogo fechado sem decisão');
+  }
 }
 
 /// Raízes de workspace informadas na abertura (CLI/desktop picker).
@@ -68,6 +89,10 @@ class BootNotifier extends Notifier<BootResult> {
         keyResolver: secrets.read,
       );
       ref.read(secretStoreProvider.notifier).state = secrets;
+      if (workspaceRoots.isNotEmpty) {
+        ref.read(currentWorkspacePathProvider.notifier).state =
+            workspaceRoots.first;
+      }
       state = BootSuccess(app);
     } on VtFailure catch (f) {
       state = BootFailed(f);
@@ -258,32 +283,65 @@ final workspaceListProvider =
 // Conversas & mensagens
 // ============================================================================
 
-final conversationListProvider = AutoDisposeNotifierProviderFamily<
-    ConversationListNotifier, List<Map<String, Object?>>, String>(
-    ConversationListNotifier.new);
+/// Workspace efetivo em foco: seleção manual ou primeira raiz do boot.
+final focusedWorkspacePathProvider = Provider<String?>((ref) {
+  final selected = ref.watch(currentWorkspacePathProvider);
+  if (selected != null && selected.isNotEmpty) return selected;
+  final roots = ref.watch(vtAppProvider).workspaceRoots;
+  return roots.isEmpty ? null : roots.first;
+});
 
-class ConversationListNotifier extends
-    AutoDisposeFamilyNotifier<List<Map<String, Object?>>, String> {
+class ConversationListData {
+  const ConversationListData({required this.items, required this.workspaceId});
+  /// Linhas reais de `conversations` (id, title, created_at, ...).
+  final List<Map<String, Object?>> items;
+  final String? workspaceId;
+}
+
+class ConversationListNotifier extends AutoDisposeNotifier<ConversationListData> {
   @override
-  List<Map<String, Object?>> build(String arg) => _load();
+  ConversationListData build() {
+    final ws = ref.watch(focusedWorkspacePathProvider);
+    if (ws == null) {
+      return const ConversationListData(items: [], workspaceId: null);
+    }
+    return ConversationListData(
+      items: ref.watch(chatServiceProvider).listConversations(ws),
+      workspaceId: ws,
+    );
+  }
 
-  List<Map<String, Object?>> _load() =>
-      ref.watch(chatServiceProvider).listConversations(arg);
-
+  /// Cria conversa REAL no SQLite e a coloca em foco.
   String create(String title) {
-    final chat = ref.read(chatServiceProvider);
-    final id = chat.createConversation(workspaceId: arg, title: title);
+    final ws = state.workspaceId;
+    if (ws == null) {
+      throw VtFailure(
+        code: VtErrorCode.validationFailed,
+        message: 'Nenhum workspace aberto para criar a conversa.',
+        recoveryActions: const [
+          RecoveryAction(kind: 'pick_folder', label: 'Abrir uma pasta'),
+        ],
+      );
+    }
+    final id = ref.read(chatServiceProvider)
+        .createConversation(workspaceId: ws, title: title);
+    ref.read(currentConversationIdProvider.notifier).state = id;
     refresh();
     return id;
   }
 
-  void refresh() => state = _load();
+  void refresh() => state = build();
 }
+
+final conversationListProvider =
+    AutoDisposeNotifierProvider<ConversationListNotifier, ConversationListData>(
+        ConversationListNotifier.new);
 
 /// Página inicial do histórico (cursor-based real via ChatRepository).
 final messagesPageProvider =
-    FutureProvider.autoDispose.family<Page<MessageRecord>, String>(
-  (ref, convId) async => ref.watch(chatServiceProvider).pageMessages(convId),
+    FutureProvider.autoDispose.family<List<MessageRecord>, String>(
+  (ref, convId) async =>
+      ref.watch(chatServiceProvider).pageMessages(convId).items,
 );
 
 /// Estado observável da conversa em foco (stream real do ChatService).
