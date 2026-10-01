@@ -22,11 +22,34 @@ class MessageBlocksView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Sequências contíguas de tool calls viram UMA trilha agrupada — em
+    // turnos com muitas ferramentas a timeline fica escaneável (cabeçalho
+    // com progresso real + itens individualmente expansíveis) em vez de
+    // N cards soltos. Um único tool call permanece como card direto.
+    Widget childFor(List<Map<String, Object?>> run) => run.length == 1
+        ? _BlockView(block: run.single)
+        : ToolCallTrailer(calls: List.unmodifiable(run));
+
+    final children = <Widget>[];
+    final run = <Map<String, Object?>>[];
+    void flushRun() {
+      if (run.isEmpty) return;
+      children.add(childFor(run));
+      run.clear();
+    }
+
+    for (final b in blocks) {
+      if (ToolCallTrailer.isToolCall(b)) {
+        run.add(b);
+        continue;
+      }
+      flushRun();
+      children.add(_BlockView(block: b));
+    }
+    flushRun();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final b in blocks) _BlockView(block: b),
-      ],
+      children: children,
     );
   }
 }
@@ -62,12 +85,7 @@ class _BlockView extends StatelessWidget {
           outputTail: block['outputTail'] as String? ?? '',
         );
       case 'tool_call':
-        return ToolCallCard(
-          callId: block['callId'] as String? ?? '',
-          toolId: block['toolId'] as String? ?? '',
-          argsJson: block['argsJson'] as String? ?? '{}',
-          statusWire: block['status'] as String? ?? 'pending',
-        );
+        return ToolCallCard.fromBlock(block);
       case 'error':
         return ErrorCard(failureJson: block);
       default:
@@ -340,10 +358,59 @@ class TerminalCard extends StatelessWidget {
   }
 }
 
+/// Status/ícone/label canônicos de um tool call — fonte única para o card
+/// persistido e para o card ao-vivo do streaming (mesma linguagem visual).
+(String, Color, String) toolCallVisual(
+    BuildContext context, ToolCallStatus? status, bool known) {
+  final theme = Theme.of(context);
+  final vt = VtTheme.of(context);
+  if (!known) return (Icons.help_outline, theme.hintColor, 'status desconhecido');
+  return switch (status ?? ToolCallStatus.pending) {
+    ToolCallStatus.pending =>
+      (Icons.hourglass_empty, theme.hintColor, 'aguardando aprovação'),
+    ToolCallStatus.approved =>
+      (Icons.check_circle_outline, vt.riskLow, 'aprovada'),
+    ToolCallStatus.executing =>
+      (Icons.play_circle_outline, vt.accent, 'executando…'),
+    ToolCallStatus.succeeded => (Icons.task_alt, vt.riskLow, 'concluída'),
+    ToolCallStatus.failed => (Icons.error_outline, vt.riskCritical, 'falhou'),
+    ToolCallStatus.blocked => (Icons.block, vt.riskHigh, 'bloqueada'),
+  };
+}
+
+ToolCallStatus _toolStatusFromWire(String statusWire) =>
+    ToolCallStatus.values.firstWhere((s) => s.name == statusWire,
+        orElse: () => ToolCallStatus.pending);
+
+/// Args como JSON indentado quando parseável; cru caso contrário.
+String _prettyJson(String raw) {
+  try {
+    return const JsonEncoder.withIndent('  ').convert(jsonDecode(raw));
+  } catch (_) {
+    return raw;
+  }
+}
+
+/// Resultado da tool: se for JSON parseável, indentamos só o campo `result`
+/// (ou o payload inteiro), mantendo leitura monoespaçada; senão, texto cru.
+String _prettyResult(Object? resultText) {
+  final s = resultText?.toString() ?? '';
+  if (s.isEmpty) return '';
+  try {
+    final decoded = jsonDecode(s);
+    return const JsonEncoder.withIndent('  ').convert(decoded);
+  } catch (_) {
+    return s;
+  }
+}
+
+String _fmtMs(int ms) => ms < 1000 ? '$ms ms' : '${(ms / 1000).toStringAsFixed(1)} s';
+
 /// Card de tool call persistido (bloco `tool_call` do ChatService).
 ///
-/// Renderiza exatamente o status gravado no banco (`ToolCallStatus.name`);
-/// nunca infere sucesso — status ausente/inválido vira 'desconhecido'.
+/// Renderiza exatamente o que está gravado no banco: status, args e — após a
+/// execução — o resultado REAL devolvido pela tool (`resultText`), duração e
+/// tentativas. Nunca infere sucesso nem resume a saída por conta própria.
 class ToolCallCard extends StatelessWidget {
   const ToolCallCard({
     super.key,
@@ -351,62 +418,43 @@ class ToolCallCard extends StatelessWidget {
     required this.toolId,
     required this.argsJson,
     required this.statusWire,
+    this.resultText,
+    this.durationMs,
+    this.attempts,
   });
+
+  factory ToolCallCard.fromBlock(Map<String, Object?> block) => ToolCallCard(
+        callId: block['callId'] as String? ?? '',
+        toolId: block['toolId'] as String? ?? '',
+        argsJson: block['argsJson'] as String? ?? '{}',
+        statusWire: block['status'] as String? ?? 'pending',
+        resultText: block['resultText'],
+        durationMs: (block['durationMs'] as num?)?.toInt(),
+        attempts: (block['attempts'] as num?)?.toInt(),
+      );
 
   final String callId;
   final String toolId;
   final String argsJson;
   final String statusWire;
 
+  /// Saída REAL da tool (persistida pelo tool loop após a execução).
+  final Object? resultText;
+  final int? durationMs;
+  final int? attempts;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final vt = VtTheme.of(context);
-    final status = ToolCallStatus.values.firstWhere(
-      (s) => s.name == statusWire,
-      orElse: () => ToolCallStatus.pending,
-    );
     final known = ToolCallStatus.values.any((s) => s.name == statusWire);
-    final (icon, color, label) = switch (status) {
-      ToolCallStatus.pending => (
-          Icons.hourglass_empty,
-          theme.hintColor,
-          'aguardando aprovação'
-        ),
-      ToolCallStatus.approved => (
-          Icons.check_circle_outline,
-          vt.riskLow,
-          'aprovada'
-        ),
-      ToolCallStatus.executing => (
-          Icons.play_circle_outline,
-          vt.accent,
-          'executando…'
-        ),
-      ToolCallStatus.succeeded => (
-          Icons.task_alt,
-          vt.riskLow,
-          'concluída'
-        ),
-      ToolCallStatus.failed => (
-          Icons.error_outline,
-          vt.riskCritical,
-          'falhou'
-        ),
-      ToolCallStatus.blocked => (
-          Icons.block,
-          vt.riskHigh,
-          'bloqueada'
-        ),
-    };
-    // Args como JSON indentado quando parseável; cru caso contrário.
-    final prettyArgs = () {
-      try {
-        return const JsonEncoder.withIndent('  ').convert(jsonDecode(argsJson));
-      } catch (_) {
-        return argsJson;
-      }
-    }();
+    final (icon, color, label) =
+        toolCallVisual(context, _toolStatusFromWire(statusWire), known);
+    final prettyArgs = _prettyJson(argsJson);
+    final hasResult = (resultText?.toString() ?? '').isNotEmpty;
+    final done = statusWire == ToolCallStatus.succeeded.name ||
+        statusWire == ToolCallStatus.failed.name ||
+        statusWire == ToolCallStatus.blocked.name;
 
     return Container(
       width: double.infinity,
@@ -430,28 +478,177 @@ class ToolCallCard extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(known ? label : 'status desconhecido ($statusWire)',
-                style:
-                    theme.textTheme.labelSmall?.copyWith(color: color)),
+                style: theme.textTheme.labelSmall?.copyWith(color: color)),
           ],
         ),
-        subtitle: Text(callId,
-            style: theme.textTheme.labelSmall
-                ?.copyWith(color: theme.hintColor)),
+        subtitle: Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(callId,
+                style: theme.textTheme.labelSmall
+                    ?.copyWith(color: theme.hintColor)),
+            if (durationMs != null)
+              Text('⏱ ${_fmtMs(durationMs!)}',
+                  style: theme.textTheme.labelSmall
+                      ?.copyWith(color: theme.hintColor)),
+            if (attempts != null && attempts! > 1)
+              Text('$attempts tentativas',
+                  style: theme.textTheme.labelSmall
+                      ?.copyWith(color: vt.riskMedium)),
+          ],
+        ),
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: SelectableText(
-                prettyArgs,
-                maxLines: 12,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SelectableText(
+                    prettyArgs,
+                    maxLines: 12,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                  ),
+                ),
+                if (hasResult) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, bottom: 2),
+                    child: Text(
+                      done ? 'resultado (real)' : 'resultado parcial',
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: color),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: vt.codeBackground.withOpacity(0.7),
+                        border: Border.all(color: color.withOpacity(0.35)),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: SelectableText(
+                        _prettyResult(resultText),
+                        maxLines: 20,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontFamily: 'monospace', fontSize: 11),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],
       ),
     );
+  }
+}
+
+/// Trilha compacta de múltiplas ferramentas no mesmo turno assistente:
+/// header com progresso real (n concluídas / total, por status) e um item
+/// expansível por chamada. Cada linha mostra EXATAMENTE o bloco persistido.
+class ToolCallTrailer extends StatelessWidget {
+  const ToolCallTrailer({super.key, required this.calls});
+
+  /// Blocos `tool_call` contíguos da mensagem (ordem de chegada preservada).
+  final List<Map<String, Object?>> calls;
+
+  static bool isToolCall(Map<String, Object?> b) => b['type'] == 'tool_call';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final vt = VtTheme.of(context);
+    var succeeded = 0, failed = 0, blocked = 0, active = 0;
+    for (final c in calls) {
+      switch (c['status'] as String? ?? 'pending') {
+        case 'succeeded':
+          succeeded++;
+        case 'failed':
+          failed++;
+        case 'blocked':
+          blocked++;
+        case 'executing':
+        case 'approved':
+          active++;
+        default:
+          break;
+      }
+    }
+    final finished = succeeded + failed + blocked;
+    final overallColor = failed > 0 || blocked > 0
+        ? vt.riskCritical
+        : (active > 0 || finished < calls.length ? vt.accent : vt.riskLow);
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      decoration: BoxDecoration(
+        color: vt.codeBackground.withOpacity(0.35),
+        border: Border.all(color: overallColor.withOpacity(0.5)),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
+            child: Row(
+              children: [
+                Icon(Icons.construction, size: 15, color: overallColor),
+                const SizedBox(width: 8),
+                Text('Ferramentas ($finished/${calls.length})',
+                    style: theme.textTheme.labelMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                if (succeeded > 0)
+                  _TrailChip(Icons.task_alt, vt.riskLow, '$succeeded'),
+                if (failed > 0)
+                  _TrailChip(Icons.error_outline, vt.riskCritical, '$failed'),
+                if (blocked > 0)
+                  _TrailChip(Icons.block, vt.riskHigh, '$blocked'),
+                if (active > 0)
+                  _TrailChip(Icons.play_circle_outline, vt.accent, '$active'),
+              ],
+            ),
+          ),
+          // Itens inline (sem ExpansionTile pai): cada tool call continua
+          // individualmente expansível — nada some atrás de dois níveis.
+          for (final c in calls)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 0, 6, 2),
+              child: ToolCallCard.fromBlock(c),
+            ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrailChip extends StatelessWidget {
+  const _TrailChip(this.icon, this.color, this.label);
+  final IconData icon;
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 12, color: color),
+      const SizedBox(width: 3),
+      Text(label,
+          style: Theme.of(context)
+              .textTheme
+              .labelSmall
+              ?.copyWith(color: color)),
+    ]);
   }
 }
 

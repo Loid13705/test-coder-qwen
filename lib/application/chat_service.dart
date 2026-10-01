@@ -35,9 +35,12 @@ class ConversationState {
     this.streamingText = '',
     this.pendingToolCalls = const [],
     this.toolOutcomes = const {},
+    this.toolResults = const {},
+    this.toolDurationsMs = const {},
     this.lastUsage,
     this.lastError,
     this.providerLatencyMs,
+    this.toolIteration = 0,
   });
 
   final RunStatus runStatus;
@@ -48,13 +51,51 @@ class ConversationState {
 
   /// callId → status real da execução (UI mostra spinner/check por tool).
   final Map<String, ToolCallStatus> toolOutcomes;
+
+  /// callId → resultado REAL devolvido pela tool após execução (texto do
+  /// `ToolCallOutcome.resultText`). Só existe para tools já concluídas —
+  /// a UI mostra exatamente este conteúdo, nunca resumo inventado.
+  final Map<String, String> toolResults;
+
+  /// callId → duração real da execução (ms), vinda do executor auditado.
+  final Map<String, int> toolDurationsMs;
+
   final TokenUsage? lastUsage;
   final VtFailure? lastError;
+
+  /// Iteração atual do tool loop (0-based): "rodada" de turnos assistente +
+  /// ferramentas dentro deste envio. Limite real: [ChatService.maxToolIterations].
+  final int toolIteration;
 
   /// Latência medida real (TTFT) entre envio e primeiro delta.
   final int? providerLatencyMs;
 
   bool get isBusy => runStatus == RunStatus.running;
+
+  ConversationState copyWith({
+    RunStatus? runStatus,
+    String? streamingText,
+    List<ToolCallStartChunk>? pendingToolCalls,
+    Map<String, ToolCallStatus>? toolOutcomes,
+    Map<String, String>? toolResults,
+    Map<String, int>? toolDurationsMs,
+    int? toolIteration,
+    TokenUsage? lastUsage,
+    VtFailure? lastError,
+    int? providerLatencyMs,
+  }) =>
+      ConversationState(
+        runStatus: runStatus ?? this.runStatus,
+        streamingText: streamingText ?? this.streamingText,
+        pendingToolCalls: pendingToolCalls ?? this.pendingToolCalls,
+        toolOutcomes: toolOutcomes ?? this.toolOutcomes,
+        toolResults: toolResults ?? this.toolResults,
+        toolDurationsMs: toolDurationsMs ?? this.toolDurationsMs,
+        toolIteration: toolIteration ?? this.toolIteration,
+        lastUsage: lastUsage ?? this.lastUsage,
+        lastError: lastError ?? this.lastError,
+        providerLatencyMs: providerLatencyMs ?? this.providerLatencyMs,
+      );
 }
 
 /// Registro de providers configurados. Na inicialização real é populado a
@@ -353,6 +394,9 @@ class ChatService {
     var msgSeq = nowMicros + 1;
 
     for (var iteration = 0; iteration <= maxToolIterations; iteration++) {
+      // Progresso REAL do tool loop visível na UI (rodada atual + limite).
+      _emit(conversationId,
+          stateOf(conversationId).copyWith(toolIteration: iteration));
       final turn = await _streamOneTurn(
         conversationId: conversationId,
         provider: provider,
@@ -388,9 +432,23 @@ class ChatService {
         allOutcomes[tc.callId] = await _runTool(
             conversationId, tc, allOutcomes.values.toList());
         final o = allOutcomes[tc.callId]!;
-        // Grava o status REAL da tool no card persistido desta mensagem
-        // assistente (senão o histórico mostraria 'pending' para sempre).
+        // Grava o status + resultado REAIS da tool no card persistido desta
+        // mensagem assistente (senão o histórico mostraria 'pending' para
+        // sempre e nunca exibiria a saída observada). Bind via repo.
         _persistToolOutcome(conversationId, turn.assistantId, tc.callId, o);
+        // Expõe resultado/duração ao vivo na UI (expansão do card ao lado).
+        _emit(
+            conversationId,
+            stateOf(conversationId).copyWith(
+              toolResults: {
+                ...stateOf(conversationId).toolResults,
+                tc.callId: o.resultText,
+              },
+              toolDurationsMs: {
+                ...stateOf(conversationId).toolDurationsMs,
+                tc.callId: o.durationMs,
+              },
+            ));
         convo.add(ChatRequestMessage(
             role: 'tool',
             toolCallId: tc.providerToolUseId ?? tc.callId,
@@ -418,6 +476,9 @@ class ChatService {
                 ToolCallOutcomeKind.failed => ToolCallStatus.failed,
               }
           },
+          toolResults: lastState.toolResults,
+          toolDurationsMs: lastState.toolDurationsMs,
+          toolIteration: lastState.toolIteration,
           lastUsage: usage.total > 0 ? usage : null,
           lastError: failure,
           providerLatencyMs: lastState.providerLatencyMs,
@@ -463,24 +524,20 @@ class ChatService {
             textBuf.write(text);
             _emit(
                 conversationId,
-                ConversationState(
+                stateOf(conversationId).copyWith(
                   runStatus: RunStatus.running,
                   streamingText: textBuf.toString(),
                   pendingToolCalls: List.of(toolCalls),
-                  toolOutcomes: stateOf(conversationId).toolOutcomes,
-                  lastUsage: usage.total > 0 ? usage : null,
                   providerLatencyMs: ttftMs,
                 ));
           case ToolCallStartChunk():
             toolCalls.add(chunk);
             _emit(
                 conversationId,
-                ConversationState(
+                stateOf(conversationId).copyWith(
                   runStatus: RunStatus.running,
                   streamingText: textBuf.toString(),
                   pendingToolCalls: List.of(toolCalls),
-                  toolOutcomes: stateOf(conversationId).toolOutcomes,
-                  lastUsage: usage.total > 0 ? usage : null,
                   providerLatencyMs: ttftMs > 0 ? ttftMs : null,
                 ));
           case UsageChunk():
@@ -543,10 +600,10 @@ class ChatService {
     );
   }
 
-  /// Grava o status REAL de um tool call na mensagem assistente persistida.
-  /// Sem isso, os cards `tool_call` do histórico ficariam eternamente
-  /// 'pending' mesmo depois da execução (a mensagem é inserida ainda com
-  /// pendências, antes do `_runTool`). Bind paramétrico via repo.
+  /// Grava o status + resultado REAIS de um tool call na mensagem assistente
+  /// persistida. Sem isso, os cards `tool_call` do histórico ficariam
+  /// eternamente 'pending' e sem saída observável — a UI mostraria apenas a
+  /// entrada da tool. Bind paramétrico via repo; conteúdo exato do executor.
   void _persistToolOutcome(String conversationId, String messageId,
       String callId, ToolCallOutcome outcome) {
     final page = repo.pageMessages(conversationId);
@@ -566,6 +623,11 @@ class ChatService {
                   ToolCallOutcomeKind.blocked => ToolCallStatus.blocked.name,
                   ToolCallOutcomeKind.failed => ToolCallStatus.failed.name,
                 },
+                'resultText': outcome.resultText,
+                'durationMs': outcome.durationMs,
+                'attempts': outcome.attempts,
+                if (outcome.failure != null)
+                  'failure': outcome.failure!.toJson(),
               };
             }
             return b;
@@ -601,17 +663,8 @@ class ChatService {
   void _setToolStatus(String conversationId, String callId,
       ToolCallStatus status) {
     final s = stateOf(conversationId);
-    _emit(
-        conversationId,
-        ConversationState(
-          runStatus: s.runStatus,
-          streamingText: s.streamingText,
-          pendingToolCalls: s.pendingToolCalls,
-          toolOutcomes: {...s.toolOutcomes, callId: status},
-          lastUsage: s.lastUsage,
-          lastError: s.lastError,
-          providerLatencyMs: s.providerLatencyMs,
-        ));
+    _emit(conversationId,
+        s.copyWith(toolOutcomes: {...s.toolOutcomes, callId: status}));
   }
 
   /// STOP REAL: aborta a conexão HTTP; o parcial já emitido fica no estado e
