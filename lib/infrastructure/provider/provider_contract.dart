@@ -358,3 +358,31 @@ class ToolCompletionOutcome {
   final String text;
   final String modelId;
 }
+
+/// Capacidades reais de embedding (dimensões confirmadas por teste ao vivo,
+/// nunca presumidas). `null` = ainda não verificado para este endpoint.
+class EmbeddingCapabilities {
+  const EmbeddingCapabilities({this.dimensions, this.maxBatch = 64});
+  final int? dimensions;
+  final int maxBatch;
+}
+
+/// Contrato opcional de providers que expõem `/embeddings`.
+/// Providers sem suporte simplesmente NÃO implementam esta interface —
+/// o chamador degrada graciosamente para busca léxica (nunca finge vetor).
+abstract class EmbeddingProvider {
+  /// Id do modelo de embedding efetivo neste endpoint.
+  String get embeddingModelId;
+
+  EmbeddingCapabilities get embeddingCapabilities;
+
+  /// Verificação REAL: faz uma chamada mínima de embedding e confirma as
+  /// dimensões retornadas. Falha tipada se o endpoint não suporta embeddings.
+  Future<EmbeddingCapabilities> verifyEmbeddings();
+
+  /// Gera embeddings reais para [texts] (ordem preservada na resposta).
+  Future<List<List<double>>> embed({
+    required List<String> texts,
+    String? modelId,
+  });
+}
