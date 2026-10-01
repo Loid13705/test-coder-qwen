@@ -15,6 +15,7 @@ import 'dart:io';
 import '../domain/tools/tool_contract.dart';
 import '../infrastructure/checkpoint/checkpoint_store.dart';
 import '../infrastructure/checkpoint/checkpoint_tools.dart';
+import '../infrastructure/devtools/debug_tools.dart';
 import '../infrastructure/devtools/dev_tools.dart';
 import '../infrastructure/fs/fs_tools.dart';
 import '../infrastructure/git/git_tools.dart';
@@ -236,7 +237,31 @@ ToolRegistry buildFullToolRegistry(SqliteDb db,
     ..register(FlutterBuildWebTool())
     ..register(FlutterTestTool())
     ..register(CiPipelineTriggerTool())
-    ..register(ReleaseCreateTool());
+    ..register(ReleaseCreateTool())
+    // qualidade & depuração: testes/cobertura/lint/reprodução/bisect REAIS +
+    // sessões DAP reais (debug.*) e attach de VM Service real
+    ..register(TestRunSuiteTool())
+    ..register(TestGetCoverageTool())
+    ..register(LintRunTool())
+    ..register(BugReproduceTool())
+    ..register(BugVerifyFixTool())
+    ..register(BugBisectTool())
+    ..register(DebugStartSessionTool())
+    ..register(DebugSetBreakpointTool())
+    ..register(DebugRemoveBreakpointTool())
+    ..register(DebugStepTool('next', 'debug.step_over', 'Step over',
+        'DAP next REAL na primeira thread viva; aguarda o próximo evento '
+        'stopped do adapter e reporta arquivo:linha do topo da stack.'))
+    ..register(DebugStepTool('stepIn', 'debug.step_into', 'Step into',
+        'DAP stepIn REAL na primeira thread viva; aguarda parada e reporta '
+        'posição resultante.'))
+    ..register(DebugStepTool('stepOut', 'debug.step_out', 'Step out',
+        'DAP stepOut REAL: sai da função atual e espera o evento stopped do '
+        'adapter.'))
+    ..register(DebugEvaluateExpressionTool())
+    ..register(DebugGetStackTool())
+    ..register(DebugGetVariablesTool())
+    ..register(DebugAttachObservatoryTool());
 }
 
 /// Constrói o registro de provedores a partir das specs de settings.json +
