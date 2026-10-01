@@ -1,1 +1,2 @@
-(empty)
+# Dart/Flutter specific
+.dart_tool/

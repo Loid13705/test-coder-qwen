@@ -667,7 +667,12 @@ class OpenAiCompatibleProvider implements LlmProvider {
               msgs.add({
                 'role': 'user',
                 'content': [
-                  {'type': 'tool_result', 'content': m.content}
+                  {
+                    'type': 'tool_result',
+                    if (m.toolCallId != null) 'tool_use_id': m.toolCallId,
+                    if (m.toolName != null) 'name': m.toolName,
+                    'content': m.content,
+                  }
                 ]
               });
             default:
@@ -719,7 +724,14 @@ class OpenAiCompatibleProvider implements LlmProvider {
         reqBody = <String, Object?>{
           'model': modelId,
           'messages': [
-            for (final m in messages) {'role': m.role, 'content': m.content},
+            for (final m in messages)
+              {
+                'role': m.role,
+                'content': m.content,
+                // Wire OpenAI exige tool_call_id na mensagem role:tool.
+                if (m.role == 'tool' && m.toolCallId != null)
+                  'tool_call_id': m.toolCallId,
+              },
           ],
           if (options.temperature != null) 'temperature': options.temperature,
           if (options.topP != null) 'top_p': options.topP,
@@ -849,6 +861,7 @@ class OpenAiCompatibleProvider implements LlmProvider {
                   toolId: _normalizeToolId(
                       blockNames[idx] ?? '', sentToolNames),
                   argsJson: blockJson[idx]?.toString() ?? '{}',
+                  providerToolUseId: blockIds[idx],
                 ));
               }
             case 'message_delta':

@@ -213,10 +213,17 @@ class DeltaChunk extends StreamChunk {
 
 class ToolCallStartChunk extends StreamChunk {
   const ToolCallStartChunk(
-      {required this.callId, required this.toolId, required this.argsJson});
+      {required this.callId,
+      required this.toolId,
+      required this.argsJson,
+      this.providerToolUseId});
   final String callId;
   final String toolId;
   final String argsJson;
+
+  /// Id nativo do provider para o tool_use (Anthropic exige `tool_use_id` no
+  /// tool_result e ignora nosso callId interno).
+  final String? providerToolUseId;
 }
 
 class UsageChunk extends StreamChunk {
@@ -257,8 +264,19 @@ class StreamHandle {
 }
 
 class ChatRequestMessage {
-  const ChatRequestMessage({required this.role, required this.content});
+  const ChatRequestMessage({
+    required this.role,
+    required this.content,
+    this.toolCallId,
+    this.toolName,
+  });
   final String role; // system|user|assistant|tool
+
+  /// Para `role == 'tool'`: id do tool call que este resultado responde.
+  final String? toolCallId;
+
+  /// Nome da tool (wire Anthropic usa `name` no tool_result).
+  final String? toolName;
   final String content;
 }
 
