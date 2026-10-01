@@ -145,7 +145,7 @@ final secretStoreProvider = StateProvider<FileSecretStore?>((ref) => null);
 // Navegação / seleção
 // ============================================================================
 
-enum UiSection { chat, workspaces, tools, memory, diagnostics, settings }
+enum UiSection { chat, editor, workspaces, tools, memory, diagnostics, settings }
 
 final sectionProvider =
     StateProvider<UiSection>((ref) => UiSection.chat);
