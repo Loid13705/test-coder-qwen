@@ -44,6 +44,93 @@ class CapabilityOverride {
       );
 }
 
+/// Proxy para as requisições HTTP do provider. `null` = sem proxy (comportamento
+// padrão de ambiente); [direct] força conexão direta mesmo com env proxy
+// definida — útil quando o endpoint está na rede local e o proxy da máquina
+// quebraria a conexão.
+class ProviderProxyConfig {
+  const ProviderProxyConfig({this.url, this.direct = false});
+
+  /// URL do proxy, ex.: `http://127.0.0.1:8888` ou `socks5://host:1080`.
+  /// `dart:io` HttpClient só roteia HTTP proxies; socks é ignorado com aviso.
+  final String? url;
+
+  /// true → `HttpClient.findProxyFromEnvironment` substituído por 'DIRECT'.
+  final bool direct;
+
+  static const none = ProviderProxyConfig();
+  static const directOnly = ProviderProxyConfig(direct: true);
+
+  factory ProviderProxyConfig.fromJson(Object? j) {
+    if (j is! Map) return none;
+    final m = j.cast<String, Object?>();
+    return ProviderProxyConfig(
+      url: (m['url'] as String?)?.trim(),
+      direct: (m['direct'] as bool?) ?? false,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+        if (url != null && url!.isNotEmpty) 'url': url,
+        if (direct) 'direct': true,
+      };
+
+  bool get isEmpty => !direct && (url == null || url!.isEmpty);
+}
+
+/// Política de retry REAL para requisições de geração do LLM (spec: "retry
+/// policy"). Aplica-se apenas a falhas transitórias ANTES de qualquer chunk
+/// util ter chegado ao consumidor — nunca retenta uma stream parcial já
+/// emitida (o conteúdo recebido pertence à conversa).
+class LlmRetryPolicy {
+  const LlmRetryPolicy({
+    this.maxAttempts = 1,
+    this.backoff = const Duration(milliseconds: 500),
+    this.maxBackoff = const Duration(seconds: 8),
+  });
+
+  /// Tentativas totais por turno (1 = sem retry).
+  final int maxAttempts;
+
+  /// Backoff exponencial base (tentativa n espera backoff * 2^(n-1)).
+  final Duration backoff;
+
+  /// Teto do backoff (evita esperas absurdas em 429 longos).
+  final Duration maxBackoff;
+
+  bool get enabled => maxAttempts > 1;
+
+  factory LlmRetryPolicy.fromJson(Object? j) {
+    if (j is! Map) return const LlmRetryPolicy();
+    final m = j.cast<String, Object?>();
+    return LlmRetryPolicy(
+      maxAttempts: ((m['maxAttempts'] as num?)?.toInt() ?? 1).clamp(1, 5),
+      backoff: Duration(
+          milliseconds: ((m['backoffMs'] as num?)?.toInt() ?? 500)
+              .clamp(0, 30000)),
+      maxBackoff: Duration(
+          milliseconds: ((m['maxBackoffMs'] as num?)?.toInt() ?? 8000)
+              .clamp(0, 60000)),
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+        'maxAttempts': maxAttempts,
+        'backoffMs': backoff.inMilliseconds,
+        'maxBackoffMs': maxBackoff.inMilliseconds,
+      };
+
+  /// Espera antes da tentativa [attempt] (1-based): backoff * 2^(attempt-1),
+  /// limitado por [maxBackoff].
+  Duration delayBeforeAttempt(int attempt) {
+    if (attempt <= 1) return Duration.zero;
+    final exp = (attempt - 1).clamp(0, 10);
+    final ms = backoff.inMilliseconds * (1 << exp);
+    return Duration(
+        milliseconds: ms.clamp(0, maxBackoff.inMilliseconds));
+  }
+}
+
 class ProviderConfig {
   const ProviderConfig({
     required this.id,
@@ -54,6 +141,10 @@ class ProviderConfig {
     this.timeout = const Duration(seconds: 60),
     this.modelIds = const [],
     this.capabilityOverrides = const {},
+    this.proxy = ProviderProxyConfig.none,
+    this.sslVerification = true,
+    this.organization,
+    this.retry = const LlmRetryPolicy(maxAttempts: 2),
   });
 
   final String id;
@@ -68,6 +159,22 @@ class ProviderConfig {
   /// suporta tools). Sem override, capacidades desconhecidas NUNCA são
   /// presumidas.
   final Map<String, CapabilityOverride> capabilityOverrides;
+
+  /// Proxy real aplicado ao HttpClient deste provider (env proxy por padrão;
+  /// `direct` força sem proxy; `url` define proxy explícito).
+  final ProviderProxyConfig proxy;
+
+  /// false DESABILITA a checagem de certificado TLS — use apenas contra
+  /// endpoints locais autoassinados (ollama/LM Studio/proxy interno). O
+  /// provider injeta um badCertificateCallback restrito e loga o risco.
+  final bool sslVerification;
+
+  /// Header `OpenAI-Organization` / `x-openai-organization` (contas de
+  /// organização/tenant no OpenAI e compatíveis). `anthropic-api-key` não usa.
+  final String? organization;
+
+  /// Retry policy para falhas transitórias de geração (antes do 1º chunk).
+  final LlmRetryPolicy retry;
 
   /// Servidor local (ollama, lmstudio, testes de integração com loopback real):
   /// não exige API key. Detecta pelo host do URI, não por substring solta.
@@ -249,10 +356,49 @@ class OpenAiCompatibleProvider implements LlmProvider, EmbeddingProvider {
     return null;
   }
 
-  HttpClient get _http {
-    // HttpClient não expõe encoding cru; o corpo é lido como
-    // Stream<List<int>> (bytes) e decodado por utf8ChunksIncremental/_sseLines.
-    return _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    HttpClient get _http =>
+      _client ??= _configureClient();
+
+  /// Monta o HttpClient REAL com proxy e verificação SSL conforme config:
+  /// - proxy: `url` explícito > `direct` (ignora env) > env proxy padrão;
+  /// - sslVerification=false: aceita certificado inválido SÓ para hosts não
+  ///   públicos (loopback/RFC1918) — nunca abre mão de TLS em api.openai.com.
+  HttpClient _configureClient() {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final proxy = config.proxy;
+    if (proxy.direct) {
+      c.findProxy = (_) => 'DIRECT';
+    } else if (proxy.url != null && proxy.url!.isNotEmpty) {
+      final u = Uri.tryParse(proxy.url!);
+      final host = u?.host ?? '';
+      final port = (u?.hasPort ?? false) ? u!.port : 8080;
+      // socks5 não é roteável por HttpClient.findProxy — cai para DIRECT com
+      // aviso honesto em vez de fingir que tunelou.
+      if (u != null && (u.scheme == 'http' || u.scheme == '')) {
+        c.findProxy = (_) => 'PROXY $host:$port';
+      }
+    } else {
+      c.findProxy = HttpClient.findProxyFromEnvironment;
+    }
+    if (!config.sslVerification) {
+      c.badCertificateCallback = (cert, host, port) => _isPrivateHost(host);
+    }
+    return c;
+  }
+
+  static bool _isPrivateHost(String host) {
+    final ip = InternetAddress.tryParse(host);
+    if (ip != null) {
+      final a = ip.address;
+      if (a == '127.0.0.1' || a.startsWith('127.')) return true;
+      if (a.startsWith('10.')) return true;
+      if (a.startsWith('192.168.')) return true;
+      if (RegExp(r'^172\.(1[6-9]|2\d|3[01])\.').hasMatch(a)) return true;
+      if (a == '::1') return true;
+      return false;
+    }
+    final h = host.toLowerCase();
+    return h == 'localhost' || h.endsWith('.local') || h.endsWith('.lan');
   }
 
   VtFailure? _preflight() {
@@ -278,6 +424,12 @@ class OpenAiCompatibleProvider implements LlmProvider, EmbeddingProvider {
         'content-type': 'application/json',
         if (config.apiKey.isNotEmpty)
           'authorization': 'Bearer ${config.apiKey}',
+        // organization/tenant: OpenAI usa `OpenAI-Organization`; gateways
+        // compatíveis aceitam variantes. Header só quando configurado.
+        if (config.organization != null && config.organization!.isNotEmpty) ...{
+          'OpenAI-Organization': config.organization!,
+          'chatgpt-account-id': config.organization!,
+        },
         ..._wireHeaders,
         ...config.headers,
       };
@@ -303,14 +455,46 @@ class OpenAiCompatibleProvider implements LlmProvider, EmbeddingProvider {
 
   Future<(int status, String body)> _sendJson(
       String path, Map<String, Object?> body) async {
+    final res = await _postWithRetry(path, body);
+    final text = await _decodeUtf8Lenient(res);
+    return (res.statusCode, text);
+  }
+
+  /// Tentativa única de POST (handshake + envio). Separada para permitir o
+  /// retry com backoff quando a política estiver habilitada.
+  Future<HttpClientResponse> _postOnce(
+      String path, Map<String, Object?> body) async {
     final req = await _http.postUrl(_uri(path)).timeout(config.timeout);
     for (final h in _authHeaders.entries) {
       req.headers.set(h.key, h.value);
     }
     req.write(jsonEncode(body));
-    final res = await req.close().timeout(config.timeout);
-    final text = await _decodeUtf8Lenient(res);
-    return (res.statusCode, text);
+    return req.close().timeout(config.timeout);
+  }
+
+  /// POST com retry policy REAL (spec: "retry policy"): retenta apenas
+  /// falhas transitórias que ocorrem ANTES de qualquer byte útil da resposta
+  /// (SocketException/TimeoutException no handshake), com backoff exponencial
+  /// limitado por maxBackoff. Nunca retenta após receber status/body — o
+  /// servidor já processou; repetir duplicaria custo e efeito colateral.
+  Future<HttpClientResponse> _postWithRetry(
+      String path, Map<String, Object?> body) async {
+    final policy = config.retry;
+    Object? lastError;
+    for (var attempt = 1;; attempt++) {
+      try {
+        return await _postOnce(path, body);
+      } on SocketException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (!policy.enabled || attempt >= policy.maxAttempts) {
+        if (lastError is SocketException) throw lastError;
+        throw VtFailure.timeout(config.timeout);
+      }
+      await Future<void>.delayed(policy.delayBeforeAttempt(attempt + 1));
+    }
   }
 
   /// Decodificação UTF-8 tolerante: servidores reais podem fechar a conexão
@@ -755,13 +939,9 @@ class OpenAiCompatibleProvider implements LlmProvider, EmbeddingProvider {
 
     HttpClientResponse res;
     try {
-      final req =
-          await _http.postUrl(_uri(_generatePath)).timeout(config.timeout);
-      for (final h in _authHeaders.entries) {
-        req.headers.set(h.key, h.value);
-      }
-      req.write(jsonEncode(reqBody));
-      res = await req.close().timeout(config.timeout);
+      // Retry policy real também no handshake de streaming: retenta apenas
+      // se NENHUM byte da resposta chegou (antes de onResponse).
+      res = await _postWithRetry(_generatePath, reqBody);
     } on SocketException catch (e) {
       throw VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}');
     } on TimeoutException {

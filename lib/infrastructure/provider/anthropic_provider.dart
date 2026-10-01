@@ -40,8 +40,72 @@ class AnthropicProvider implements LlmProvider {
 
   // HttpClient não expõe encoding cru; o corpo é lido como
   // Stream<List<int>> (bytes) e decodado por utf8ChunksIncremental.
-  HttpClient get _http =>
-      _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 15);
+  // Proxy/SSL verificação REAL conforme config (mesma política do provider
+  // OpenAI-compatível: proxy explícito > direct > env; sslVerification=false
+  // só aceita certificado inválido em hosts privados).
+  HttpClient get _http => _client ??= _configureClient();
+
+  HttpClient _configureClient() {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final proxy = config.proxy;
+    if (proxy.direct) {
+      c.findProxy = (_) => 'DIRECT';
+    } else if (proxy.url != null && proxy.url!.isNotEmpty) {
+      final u = Uri.tryParse(proxy.url!);
+      if (u != null && (u.scheme == 'http' || u.scheme.isEmpty)) {
+        final port = u.hasPort ? u.port : 8080;
+        c.findProxy = (_) => 'PROXY ${u.host}:$port';
+      }
+    } else {
+      c.findProxy = HttpClient.findProxyFromEnvironment;
+    }
+    if (!config.sslVerification) {
+      c.badCertificateCallback = (cert, host, port) => _isPrivateHost(host);
+    }
+    return c;
+  }
+
+  static bool _isPrivateHost(String host) {
+    final ip = InternetAddress.tryParse(host);
+    if (ip != null) {
+      final a = ip.address;
+      if (a == '127.0.0.1' || a.startsWith('127.')) return true;
+      if (a.startsWith('10.') || a.startsWith('192.168.')) return true;
+      if (RegExp(r'^172\.(1[6-9]|2\d|3[01])\.').hasMatch(a)) return true;
+      if (a == '::1') return true;
+      return false;
+    }
+    final h = host.toLowerCase();
+    return h == 'localhost' || h.endsWith('.local') || h.endsWith('.lan');
+  }
+
+  /// POST com retry policy real (handshake apenas — nunca retenta após o
+  /// primeiro byte da resposta, para não duplicar custo/stream parcial).
+  Future<HttpClientResponse> _postWithRetry(
+      Map<String, Object?> body) async {
+    final policy = config.retry;
+    Object? lastError;
+    for (var attempt = 1;; attempt++) {
+      try {
+        final req =
+            await _http.postUrl(_uri('messages')).timeout(config.timeout);
+        for (final h in _headers.entries) {
+          req.headers.set(h.key, h.value);
+        }
+        req.write(jsonEncode(body));
+        return req.close().timeout(config.timeout);
+      } on SocketException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (!policy.enabled || attempt >= policy.maxAttempts) {
+        if (lastError is SocketException) throw lastError;
+        throw VtFailure.timeout(config.timeout);
+      }
+      await Future<void>.delayed(policy.delayBeforeAttempt(attempt + 1));
+    }
+  }
 
   Map<String, String> get _headers => {
         'content-type': 'application/json',
@@ -371,12 +435,8 @@ class AnthropicProvider implements LlmProvider {
 
     HttpClientResponse res;
     try {
-      final req = await _http.postUrl(_uri('messages')).timeout(config.timeout);
-      for (final h in _headers.entries) {
-        req.headers.set(h.key, h.value);
-      }
-      req.write(jsonEncode(body));
-      res = await req.close().timeout(config.timeout);
+      // Retry policy real também no handshake de streaming (antes do 1º byte).
+      res = await _postWithRetry(body);
     } on SocketException catch (e) {
       throw VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}');
     } on TimeoutException {
