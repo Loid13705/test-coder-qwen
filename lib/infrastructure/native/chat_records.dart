@@ -28,13 +28,23 @@ class MessageRecord {
             .map((e) => (e as Map).cast<String, Object?>())
             .toList(),
         status: r['status'] as String,
-        modelId: r['model_id'] as String?,
-        mode: r['mode'] as String?,
-        usageJson: r['usage_json'] == null
-            ? null
-            : (jsonDecode(r['usage_json'] as String) as Map)
-                .cast<String, Object?>(),
+        // Colunas opcionais são gravadas como '' via bind paramétrico
+        // (nunca NULL interpolado); normaliza '' de volta para null.
+        modelId: _nullIfEmpty(r['model_id']),
+        mode: _nullIfEmpty(r['mode']),
+        usageJson: _decodeMapOrNull(r['usage_json']),
       );
+
+  static String? _nullIfEmpty(Object? v) {
+    final s = v is String ? v : null;
+    return (s == null || s.isEmpty) ? null : s;
+  }
+
+  static Map<String, Object?>? _decodeMapOrNull(Object? raw) {
+    final s = _nullIfEmpty(raw);
+    if (s == null) return null;
+    return (jsonDecode(s) as Map).cast<String, Object?>();
+  }
 
   final String id;
   final String conversationId;
@@ -53,20 +63,24 @@ CREATE TABLE IF NOT EXISTS conversations (
   workspace_id TEXT NOT NULL,
   title TEXT NOT NULL,
   parent_id TEXT,
-  status TEXT NOT NULL DEFAULT 'active',
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active','archived','deleted')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conv_ws ON conversations(workspace_id, updated_at);
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
-  conversation_id TEXT NOT NULL,
-  role TEXT NOT NULL,
-  model_id TEXT,
-  mode TEXT,
+  conversation_id TEXT NOT NULL
+    REFERENCES conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL
+    CHECK (role IN ('user','assistant','system','tool')),
+  model_id TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL DEFAULT '',
   blocks_json TEXT NOT NULL,
-  status TEXT NOT NULL,
-  usage_json TEXT,
+  status TEXT NOT NULL
+    CHECK (status IN ('draft','streaming','complete','completed','cancelled_partial','failed')),
+  usage_json TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, id);

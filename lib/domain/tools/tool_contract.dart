@@ -236,6 +236,9 @@ abstract class VtTool<I extends ToolInput, O extends ToolOutput> {
   Future<ToolResult<O>> execute(ToolContext ctx, I input);
 
   /// Validação estrutural do input contra o schema declarado (real).
+  /// Além de presença de obrigatórios, valida tipos primitivas dos campos
+  /// declarados em `properties` — um campo com tipo errado deve falhar aqui,
+  /// não estourar como cast dentro da tool.
   void validateInput(Map<String, Object?> raw) {
     final required =
         (inputSchema['required'] as List?)?.cast<String>() ?? const [];
@@ -247,7 +250,37 @@ abstract class VtTool<I extends ToolInput, O extends ToolOutput> {
         );
       }
     }
+    final props = inputSchema['properties'];
+    if (props is! Map) return;
+    for (final entry in raw.entries) {
+      final value = entry.value;
+      if (value == null) continue; // obrigatoriedade já foi checada acima
+      final spec = props[entry.key];
+      if (spec is! Map) continue; // campo não declarado: parseInput decide
+      final type = spec['type'];
+      if (type is! String) continue;
+      if (!_jsonTypeMatches(type, value)) {
+        throw VtFailure(
+          code: VtErrorCode.validationFailed,
+          message:
+              'Campo "${entry.key}" de $id espera tipo "$type", '
+              'recebeu ${value.runtimeType}.',
+        );
+      }
+    }
   }
+
+  static bool _jsonTypeMatches(String type, Object value) =>
+      switch (type) {
+        'string' => value is String,
+        'integer' => value is int ||
+            (value is double && value == value.roundToDouble()),
+        'number' => value is num,
+        'boolean' => value is bool,
+        'array' => value is List,
+        'object' => value is Map,
+        _ => true, // tipos desconhecidos não bloqueiam (null/enum/$ref etc.)
+      };
 
   Map<String, Object?> catalogEntry() => {
         'id': id,

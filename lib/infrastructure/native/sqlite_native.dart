@@ -243,6 +243,9 @@ class SqliteNative {
 /// existir, `missing_binary` é reportado por quem abre o DB.
 class ChatRepository {
   ChatRepository(this.db) {
+    // FK só é imposta se habilitada por PRAGMA por conexão; sem isto o
+    // REFERENCES do schema é decorativo.
+    db.execute('PRAGMA foreign_keys = ON');
     db.execute(kChatSchema);
   }
 
@@ -254,17 +257,17 @@ class ChatRepository {
       {required String workspaceId, required String title, String? parentId}) {
     final now = DateTime.now().toUtc().toIso8601String();
     final id = 'conv_${DateTime.now().microsecondsSinceEpoch}';
+    // Bind paramétrico: texto do usuário NUNCA é interpolado na SQL.
     db.execute(
         "INSERT INTO conversations (id, workspace_id, title, parent_id, status, created_at, updated_at)"
-        " VALUES ('$id','$workspaceId','${_esc(title)}',${parentId == null ? 'NULL' : "'$parentId'"},'active','$now','$now')");
+        " VALUES (?,?,?,?,?,?,?)",
+        [id, workspaceId, title, parentId ?? '', 'active', now, now]);
     return id;
   }
 
-  void touchConversation(String id) =>
-      db.execute("UPDATE conversations SET updated_at='"
-          "${DateTime.now().toUtc().toIso8601String()}' WHERE id='$id'");
-
-  String _esc(String s) => s.replaceAll("'", "''");
+  void touchConversation(String id) => db.execute(
+      "UPDATE conversations SET updated_at=? WHERE id=?",
+      [DateTime.now().toUtc().toIso8601String(), id]);
 
   List<Map<String, Object?>> listConversations(String workspaceId,
           {int limit = 50}) =>
@@ -275,6 +278,7 @@ class ChatRepository {
           [workspaceId]);
 
   /// Insere mensagem com payload JSON já serializado pelo chamador.
+  /// Bind paramétrico em todos os campos — nada de interpolação na SQL.
   void insertMessage({
     required String id,
     required String conversationId,
@@ -288,13 +292,19 @@ class ChatRepository {
   }) =>
       db.execute(
           "INSERT INTO messages (id, conversation_id, role, model_id, mode,"
-          " blocks_json, status, usage_json, created_at) VALUES ("
-          "'$id','$conversationId','$role',"
-          "${modelId == null ? 'NULL' : "'$modelId'"},"
-          "${mode == null ? 'NULL' : "'$mode'"},"
-          "'${_esc(blocksJson)}','$status',"
-          "${usageJson == null ? 'NULL' : "'${_esc(usageJson)}'"},"
-          "'$createdAt')");
+          " blocks_json, status, usage_json, created_at)"
+          " VALUES (?,?,?,?,?,?,?,?,?)",
+          [
+            id,
+            conversationId,
+            role,
+            modelId ?? '',
+            mode ?? '',
+            blocksJson,
+            status,
+            usageJson ?? '',
+            createdAt,
+          ]);
 
   int countMessages(String conversationId) {
     final rows = db.query(
