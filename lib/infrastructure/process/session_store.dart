@@ -59,7 +59,7 @@ class ManagedProcess {
     _proc = proc;
     _drain(proc.stdout, _outBuf, isErr: false);
     _drain(proc.stderr, _errBuf, isErr: true);
-    unawaited(proc.exit.then((code) {
+    unawaited(proc.exit.then((int code) {
       _exitCode = code;
       _endedBy ??= 'exit';
     }));
@@ -170,7 +170,20 @@ class ManagedProcess {
 /// processo via onSessionStarted — permite hot reload/restart REAIS por stdin
 /// e leitura do output acumulado (buffer ringueiro real).
 class FlutterRunSession {
-  FlutterRunSession(this.deviceId, this.proc, this.registeredAt) {
+  FlutterRunSession(this.deviceId, this.proc, this.registeredAt);
+
+  final String deviceId;
+  final Process proc;
+  final DateTime registeredAt;
+  final _outBuf = <int>[];
+  int _dropped = 0;
+  int? _exitCode;
+  Completer<void>? _pending;
+
+  /// Anexa os listeners de stdout/exit. Chamado UMA vez pelo SessionStore ao
+  /// registrar — separar do construtor evita dupla submissão quando a sessão
+  /// é criada fora do registro.
+  void bindStdout() {
     unawaited(proc.stdout
         .transform(const Utf8Decoder(allowMalformed: true))
         .forEach((text) {
@@ -183,16 +196,8 @@ class FlutterRunSession {
       }
       if (_pending?.isCompleted == false) _pending!.complete();
     }));
-    unawaited(proc.exit.then((code) => _exitCode = code));
+    unawaited(proc.exit.then((int code) => _exitCode = code));
   }
-
-  final String deviceId;
-  final Process proc;
-  final DateTime registeredAt;
-  final _outBuf = <int>[];
-  int _dropped = 0;
-  int? _exitCode;
-  Completer<void>? _pending;
 
   bool get alive => _exitCode == null;
   int? get exitCode => _exitCode;

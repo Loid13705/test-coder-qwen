@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 
 import '../../domain/errors/vt_failure.dart';
+import '../../application/app_bootstrap.dart' show defaultDataDir;
 import '../../domain/tools/tool_contract.dart';
 import '../native/sqlite_native.dart';
 import '../process/process_utils.dart';
@@ -447,7 +448,7 @@ class DbMigrateTool extends _DbTool {
         final backupPath = '$path.pre-migrate-$stamp.bak';
         await File(path).copy(backupPath);
         final backupStat = await File(backupPath).stat;
-        // 2) transação real
+        // 2) transação real (await correto no stat — sem `.size` sobre Future)
         final db = SqliteNative.open(path);
         final applied = <String>[];
         try {
@@ -480,10 +481,11 @@ class DbMigrateTool extends _DbTool {
         } finally {
           db.close();
         }
+        final totalBytesAfter = (await File(path).stat).size;
         return ok({
           'database': path,
           'appliedStatements': applied.length,
-          'totalBytesAfter': (await File(path).stat).size,
+          'totalBytesAfter': totalBytesAfter,
           'backup': {'path': backupPath, 'bytes': backupStat.size},
           'rollbackHint': 'Para reverter: copie o backup sobre o DB e apague '
               '-wal/-shm se existirem.',

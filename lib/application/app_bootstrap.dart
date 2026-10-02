@@ -12,6 +12,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import '../domain/models/pagination.dart';
 import '../domain/net_access.dart';
 import '../domain/tools/tool_contract.dart';
 import '../infrastructure/agent/agent_state_store.dart';
@@ -446,7 +447,7 @@ ToolRegistry buildFullToolRegistry(SqliteDb db,
     ..register(BugReproduceTool())
     ..register(BugVerifyFixTool())
     ..register(BugBisectTool())
-    ..register(DebugStartSessionTool())
+    ..register(DebugStartSessionTool(null))
     ..register(DebugSetBreakpointTool())
     ..register(DebugRemoveBreakpointTool())
     ..register(DebugStepTool('next', 'debug.step_over', 'Step over',

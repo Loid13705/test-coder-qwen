@@ -776,6 +776,13 @@ class OpenAiCompatibleProvider implements LlmProvider, EmbeddingProvider {
         // Body já em uso / stream já fechado — destroy via subscription chega
         // ao servidor de qualquer forma (encerrar a stream aborta a leitura).
       }
+      // FIX (merge #3): sinalizar cancelamento ANTES de fechar, simetricamente
+      // ao Anthropic. safeAdd é idempotente (flags cancelled/closed/isClosed):
+      // se o pump já fechou o controller, o chunk é ignorado — nunca lançado.
+      // O consumidor usa StreamController.broadcast(sync: true) no ChatService,
+      // então este evento síncrono chega ao listener antes de close() emitir
+      // seu DoneChunk('cancelled') duplicado.
+      safeAdd(const DoneChunk('cancelled'));
       await closeOnce();
     }
 

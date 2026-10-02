@@ -236,6 +236,26 @@ class SqliteNative {
       return SqliteDb._(lib, pp.value);
     });
   }
+
+  /// Abre em modo READONLY nativo (SQLITE_OPEN_READONLY=1): qualquer escrita
+  /// falha no próprio motor com SQLITE_READONLY — proteção real, não por
+  /// convenção de código. Usado por db.query_readonly.
+  static SqliteDb openReadOnly(String path) {
+    final lib = tryLoad();
+    if (lib == null) throw const SqliteUnavailableError();
+    final openV2 = lib.lookupFunction<_OpenV2C, _OpenV2Dart>('sqlite3_open_v2');
+    return using((Arena arena) {
+      final pp = arena<Pointer<Void>>();
+      // SQLITE_OPEN_READONLY(1) | FULLMUTEX(16) — sem CREATE: arquivo
+      // inexistente retorna erro do motor, não um DB vazio falso.
+      final rc =
+          openV2(path.toNativeUtf8(allocator: arena), pp, 1 | 16, nullptr);
+      if (rc != _sqliteOk) {
+        throw SqliteException(rc, 'Falha ao abrir DB "$path" em readonly (rc=$rc)');
+      }
+      return SqliteDb._(lib, pp.value);
+    });
+  }
 }
 
 /// Repositório local-first de conversas/mensagens (chat persistido em SQLite).

@@ -360,6 +360,12 @@ class AnthropicProvider implements LlmProvider {
       } catch (_) {
         // body já em uso — encerrar a subscription também aborta a leitura
       }
+      // FIX (merge #3): DoneChunk 'cancelled' só se o stream ainda está vivo.
+      // Antes, quando doCancel corria depois do finally do pump (controller
+      // já fechado), o add estourava "Bad state: Cannot add event after
+      // closing" nos testes de cancelamento. safeAdd já é idempotente por
+      // flags, mas o evento era Perdido-ou-crash conforme a corrida; agora é
+      // garantidamente emitido-ou-ignorado, nunca lançado.
       safeAdd(const DoneChunk('cancelled'));
       await closeOnce();
     }
