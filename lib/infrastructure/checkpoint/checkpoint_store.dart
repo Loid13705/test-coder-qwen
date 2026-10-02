@@ -137,10 +137,25 @@ class CheckpointStore {
     final ckptId = id ?? newId();
     final normalizedAbs = normalizeSlashes(absPath);
     final normalizedRoot = normalizeSlashes(workspaceRoot);
-    final rel = relativePath(normalizedAbs, normalizedRoot);
-    if (rel.startsWith('..')) {
+    final rootForComparison =
+        normalizedRoot.length > 1 && normalizedRoot.endsWith('/')
+            ? normalizedRoot.substring(0, normalizedRoot.length - 1)
+            : normalizedRoot;
+    final candidateForComparison =
+        Platform.isWindows ? normalizedAbs.toLowerCase() : normalizedAbs;
+    final rootForComparisonCase = Platform.isWindows
+        ? rootForComparison.toLowerCase()
+        : rootForComparison;
+    final rootPrefix = rootForComparisonCase.endsWith('/')
+        ? rootForComparisonCase
+        : '$rootForComparisonCase/';
+    if (candidateForComparison != rootForComparisonCase &&
+        !candidateForComparison.startsWith(rootPrefix)) {
       throw VtFailure.pathOutOfSandbox(absPath);
     }
+    final rel = normalizedAbs == rootForComparison
+        ? '.'
+        : normalizedAbs.substring(rootPrefix.length);
 
     final file = File(normalizedAbs);
     final existed = await file.exists();
@@ -195,8 +210,8 @@ class CheckpointStore {
     if (rec == null) return;
     final f = File(normalizeSlashes(absPath));
     final sha = await f.exists() ? _hash(await f.readAsBytes()) : '';
-    db.execute('UPDATE checkpoints SET sha256_after = ? WHERE id = ?',
-        [sha, id]);
+    db.execute(
+        'UPDATE checkpoints SET sha256_after = ? WHERE id = ?', [sha, id]);
   }
 
   CheckpointRecord? get(String id) {

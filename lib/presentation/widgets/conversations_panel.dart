@@ -24,8 +24,7 @@ class ConversationsPanel extends ConsumerStatefulWidget {
   final double width;
 
   @override
-  ConsumerState<ConversationsPanel> createState() =>
-      ConversationsPanelState();
+  ConsumerState<ConversationsPanel> createState() => ConversationsPanelState();
 }
 
 class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
@@ -58,13 +57,14 @@ class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
               iconSize: 18,
               tooltip: 'Mostrar conversas',
               onPressed: () => setCollapsed(false),
-              icon: Icon(Icons.panel_open, color: vt.accent),
+              icon: Icon(Icons.menu_open, color: vt.accent),
             ),
             IconButton(
               iconSize: 16,
               tooltip: 'Nova conversa',
-              onPressed: () => _runGuarded(
-                  () => ref.read(conversationListProvider.notifier).create('Nova conversa')),
+              onPressed: () => _runGuarded(() => ref
+                  .read(conversationListProvider.notifier)
+                  .create('Nova conversa')),
               icon: const Icon(Icons.add_comment_outlined),
             ),
             Expanded(
@@ -82,7 +82,9 @@ class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
                         .read(currentConversationIdProvider.notifier)
                         .state = id,
                     icon: Icon(
-                      _isPinned(row) ? Icons.push_pin : Icons.chat_bubble_outline,
+                      _isPinned(row)
+                          ? Icons.push_pin
+                          : Icons.chat_bubble_outline,
                       size: 15,
                       color: id == current ? vt.accent : theme.hintColor,
                     ),
@@ -109,19 +111,20 @@ class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
             child: Row(
               children: [
                 Expanded(
-                    child: Text('Conversas',
-                        style: theme.textTheme.labelLarge)),
+                    child:
+                        Text('Conversas', style: theme.textTheme.labelLarge)),
                 IconButton(
                   iconSize: 16,
                   tooltip: 'Nova conversa',
-                  onPressed: () => _runGuarded(() => notifier.create('Nova conversa')),
+                  onPressed: () =>
+                      _runGuarded(() => notifier.create('Nova conversa')),
                   icon: const Icon(Icons.add_comment_outlined),
                 ),
                 IconButton(
                   iconSize: 16,
                   tooltip: 'Esconder painel',
                   onPressed: () => setCollapsed(true),
-                  icon: const Icon(Icons.panel_close_outlined),
+                  icon: const Icon(Icons.close),
                 ),
               ],
             ),
@@ -139,7 +142,8 @@ class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
                     label: Text('Workspace')),
                 ButtonSegment(
                     value: ConversationScope.global, label: Text('Global')),
-                ButtonSegment(value: ConversationScope.all, label: Text('Todas')),
+                ButtonSegment(
+                    value: ConversationScope.all, label: Text('Todas')),
               ],
               selected: {data.scope},
               onSelectionChanged: (s) =>
@@ -151,7 +155,8 @@ class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
             child: Row(
               children: [
-                Icon(Icons.filter_alt_outlined, size: 14, color: theme.hintColor),
+                Icon(Icons.filter_alt_outlined,
+                    size: 14, color: theme.hintColor),
                 const SizedBox(width: 6),
                 DropdownButton<ConversationListFilter>(
                   key: ValueKey(data.filter),
@@ -183,9 +188,8 @@ class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
                 IconButton(
                   iconSize: 15,
                   tooltip: 'Recarregar lista',
-                  onPressed: () => ref
-                      .read(conversationListProvider.notifier)
-                      .refresh(),
+                  onPressed: () =>
+                      ref.read(conversationListProvider.notifier).refresh(),
                   icon: const Icon(Icons.refresh),
                 ),
               ],
@@ -200,7 +204,8 @@ class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
                       Icon(
                         switch (data.filter) {
                           ConversationListFilter.trash => Icons.delete_outline,
-                          ConversationListFilter.archived => Icons.archive_outlined,
+                          ConversationListFilter.archived =>
+                            Icons.archive_outlined,
                           ConversationListFilter.active => Icons.forum_outlined,
                         },
                         size: 32,
@@ -241,14 +246,14 @@ class ConversationsPanelState extends ConsumerState<ConversationsPanel> {
                 ConversationScope.global =>
                   kGlobalConversationWorkspace.replaceAll('*', ''),
                 ConversationScope.all => 'todos os workspaces',
-                ConversationScope.currentWorkspace =>
-                  data.workspaceId == null
-                      ? 'nenhum workspace'
-                      : _basename(data.workspaceId!),
+                ConversationScope.currentWorkspace => data.workspaceId == null
+                    ? 'nenhum workspace'
+                    : _basename(data.workspaceId!),
               },
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(color: theme.hintColor),
+              style:
+                  theme.textTheme.labelSmall?.copyWith(color: theme.hintColor),
             ),
           ),
         ],
@@ -345,42 +350,44 @@ class _ConversationTile extends ConsumerWidget {
             ? '${row['archived_at'] ?? row['updated_at'] ?? ''}'
             : '${row['updated_at'] ?? ''}';
 
-    return ListTile(
-      dense: true,
-      selected: selected,
-      leading: Icon(
-        switch (filter) {
-          ConversationListFilter.archived => Icons.archive_outlined,
-          ConversationListFilter.trash => Icons.delete_outline,
-          ConversationListFilter.active =>
-            pinned ? Icons.push_pin : Icons.chat_bubble_outline,
-        },
-        size: 15,
-        color: pinned && filter == ConversationListFilter.active
-            ? vt.accent
-            : theme.iconTheme.color,
-      ),
-      title: Text(_title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(
-        [
-          if (folder.isNotEmpty) '/$folder',
-          if (_tags.isNotEmpty) _tags.map((t) => '#$t').join(' '),
-          if (filter == ConversationListFilter.active && wsName.isNotEmpty)
-            wsName,
-          when,
-        ].where((s) => s.isNotEmpty).join(' · '),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.labelSmall,
-      ),
-      onTap: onSelect,
-      onSecondaryTapDown: (d) =>
-          _showMenu(context, d.globalPosition, ref),
-      trailing: PopupMenuButton<String>(
-        iconSize: 16,
-        tooltip: 'Ações da conversa',
-        onSelected: (v) => _handle(context, ref, v),
-        itemBuilder: (_) => _menuItems(),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapDown: (d) => _showMenu(context, d.globalPosition, ref),
+      child: ListTile(
+        dense: true,
+        selected: selected,
+        leading: Icon(
+          switch (filter) {
+            ConversationListFilter.archived => Icons.archive_outlined,
+            ConversationListFilter.trash => Icons.delete_outline,
+            ConversationListFilter.active =>
+              pinned ? Icons.push_pin : Icons.chat_bubble_outline,
+          },
+          size: 15,
+          color: pinned && filter == ConversationListFilter.active
+              ? vt.accent
+              : theme.iconTheme.color,
+        ),
+        title: Text(_title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+          [
+            if (folder.isNotEmpty) '/$folder',
+            if (_tags.isNotEmpty) _tags.map((t) => '#$t').join(' '),
+            if (filter == ConversationListFilter.active && wsName.isNotEmpty)
+              wsName,
+            when,
+          ].where((s) => s.isNotEmpty).join(' · '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelSmall,
+        ),
+        onTap: onSelect,
+        trailing: PopupMenuButton<String>(
+          iconSize: 16,
+          tooltip: 'Ações da conversa',
+          onSelected: (v) => _handle(context, ref, v),
+          itemBuilder: (_) => _menuItems(),
+        ),
       ),
     );
   }
@@ -419,11 +426,12 @@ class _ConversationTile extends ConsumerWidget {
     });
   }
 
-  Future<void> _handle(BuildContext context, WidgetRef ref, String action) async {
+  Future<void> _handle(
+      BuildContext context, WidgetRef ref, String action) async {
     final messenger = ScaffoldMessenger.of(context);
     final vt = VtTheme.of(context);
-    void fail(Object e) => messenger.showSnackBar(SnackBar(
-        content: Text('$e'), backgroundColor: vt.riskCritical));
+    void fail(Object e) => messenger.showSnackBar(
+        SnackBar(content: Text('$e'), backgroundColor: vt.riskCritical));
 
     try {
       switch (action) {
@@ -442,10 +450,8 @@ class _ConversationTile extends ConsumerWidget {
             ]);
           }
         case 'folder':
-          final f = await _promptText(
-              context,
-              'Pasta',
-              '${row['folder'] ?? ''}');
+          final f =
+              await _promptText(context, 'Pasta', '${row['folder'] ?? ''}');
           if (f != null) notifier.setFolder(_id, f.trim());
         case 'fork':
           notifier.fork(_id, '$_title (fork)');
@@ -454,9 +460,7 @@ class _ConversationTile extends ConsumerWidget {
         case 'unarchive':
           notifier.restore(_id);
         case 'delete':
-          final ok = await _confirm(
-              context,
-              'Excluir conversa',
+          final ok = await _confirm(context, 'Excluir conversa',
               '“$_title” vai para a lixeira e pode ser restaurada depois.',
               confirmLabel: 'Excluir');
           if (ok) notifier.softDelete(_id);
@@ -520,7 +524,8 @@ class _ConversationTile extends ConsumerWidget {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
           FilledButton(
               onPressed: () => Navigator.pop(ctx, ctrl.text),
               child: const Text('OK')),

@@ -45,8 +45,7 @@ void main() {
 
       final s = await FileSettings.load(tmp.path);
       expect(s.get('filesystem.maxReadBytes'), 1234);
-      expect(
-          s.get('filesystem.maxReadBytes', workspaceId: 'wsA'),
+      expect(s.get('filesystem.maxReadBytes', workspaceId: 'wsA'),
           99, // escopo de workspace sobrepõe global
           reason: 'hierarquia de settings ignorada');
       expect(s.get('filesystem.maxReadBytes', workspaceId: 'wsB'), 1234);
@@ -74,7 +73,8 @@ void main() {
   });
 
   group('buildFullToolRegistry', () {
-    test('buildFullToolRegistry registra as 55 ferramentas reais '
+    test(
+        'buildFullToolRegistry registra as 91 ferramentas reais '
         '(15 fs + 3 checkpoint + 15 git + 5 memória + 4 índice de código + 3 '
         'vetorial + 10 devtools)', () {
       if (!SqliteNative.available) return; // mesma guarda dos demais testes
@@ -82,7 +82,7 @@ void main() {
       addTearDown(db.close);
       final reg = buildFullToolRegistry(db);
       final ids = reg.all.map((t) => t.id).toList()..sort();
-      expect(ids.length, 55);
+      expect(ids.length, 91);
       for (final must in [
         'fs.read_text',
         'fs.write_text',
@@ -134,7 +134,7 @@ void main() {
 
       expect(File('$dataDir/techvt.sqlite').existsSync(), isTrue);
       expect(app.providerIds, ['local']);
-      expect(app.chat.tools!.all.length, 45);
+      expect(app.chat.tools!.all.length, 91);
 
       // provider registrado de verdade (chave resolvida via resolver)
       final p = app.chat.providers.require('local');
@@ -158,6 +158,43 @@ void main() {
       // dentro do workspace passa
       final ok = await app.sandbox.resolveWritable('${ws.path}/a.txt', ctx);
       expect(ok.endsWith('a.txt'), isTrue);
+    });
+
+    test('recent workspaces e raízes runtime permanecem autorizados no sandbox',
+        () async {
+      if (!SqliteNative.available) return;
+      final first = Directory('${tmp.path}/first')..createSync();
+      final second = Directory('${tmp.path}/second')..createSync();
+      final dataDir = '${tmp.path}/data';
+      await FileSettings.save(dataDir, {
+        'recentWorkspaces': [first.path],
+      });
+
+      final app = await VtApp.open(dataDir: dataDir, workspaceRoots: const []);
+      addTearDown(app.dispose);
+      expect(app.workspaceRoots, [first.resolveSymbolicLinksSync()]);
+      expect(app.chat.workspaceRoots, app.workspaceRoots);
+
+      app.setWorkspaceRoots([...app.workspaceRoots, second.path]);
+      expect(app.workspaceRoots, contains(second.resolveSymbolicLinksSync()));
+      expect(app.chat.workspaceRoots, app.workspaceRoots);
+
+      final context = ToolContext(
+        workspaceRoots: app.workspaceRoots,
+        sandbox: app.sandbox,
+        settings: app.settings,
+      );
+      expect(
+        await app.sandbox
+            .resolveWritable('${second.path}/created.txt', context),
+        endsWith('/second/created.txt'),
+      );
+
+      app.setWorkspaceRoots([second.path]);
+      await expectLater(
+        app.sandbox.resolveWritable('${first.path}/denied.txt', context),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 }

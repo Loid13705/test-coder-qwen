@@ -15,19 +15,25 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../domain/errors/vt_failure.dart';
+import '../../domain/tools/tool_contract.dart';
 import '../../infrastructure/provider/provider_contract.dart';
 
 enum InlineChatAction {
   explain('Explain', 'Explique o código selecionado: o que faz, caso a caso.'),
-  fix('Fix', 'Corrija bugs/problemas no código selecionado. '
-      'Responda APENAS com o código corrigido entre ``` cerca.'),
-  refactor('Refactor',
+  fix(
+      'Fix',
+      'Corrija bugs/problemas no código selecionado. '
+          'Responda APENAS com o código corrigido entre ``` cerca.'),
+  refactor(
+      'Refactor',
       'Refatore o código selecionado mantendo comportamento. '
           'Responda APENAS com o código entre ``` cerca.'),
-  addTests('Add Tests',
+  addTests(
+      'Add Tests',
       'Escreva testes para o código selecionado. '
           'Responda APENAS com o código de teste entre ``` cerca.'),
-  document('Document',
+  document(
+      'Document',
       'Adicione documentação (doc comments) ao código selecionado. '
           'Responda APENAS com o código documentado entre ``` cerca.');
 
@@ -53,8 +59,9 @@ class GhostState {
   /// "provider · model" exibido na UI (spec: mostrar quem respondeu).
   final String? source;
 
-  String? get current =>
-      suggestions.isEmpty || index >= suggestions.length ? null : suggestions[index];
+  String? get current => suggestions.isEmpty || index >= suggestions.length
+      ? null
+      : suggestions[index];
 
   bool get hasSuggestions => suggestions.isNotEmpty;
 
@@ -94,8 +101,8 @@ class GhostCompletionController extends ChangeNotifier {
   GhostState get state => _state;
 
   Duration get debounce => Duration(
-      milliseconds: (settings.get('editor.ghost.debounceMs') as num?)?.toInt() ??
-          350);
+      milliseconds:
+          (settings.get('editor.ghost.debounceMs') as num?)?.toInt() ?? 350);
 
   /// Exigir aceitação explícita (Tab) antes de inserir — default true.
   bool get requireAcceptance =>
@@ -120,7 +127,8 @@ class GhostCompletionController extends ChangeNotifier {
     _debounce = Timer(debounce, () => _request(prefix: prefix, suffix: suffix));
   }
 
-  Future<void> _request({required String prefix, required String suffix}) async {
+  Future<void> _request(
+      {required String prefix, required String suffix}) async {
     final provider = providerFor();
     if (provider == null) return;
     _state = _state.copyWith(busy: true, suggestions: const []);
@@ -136,7 +144,9 @@ class GhostCompletionController extends ChangeNotifier {
       // blocos ou linhas em branco — sugestões reais, não inventadas.
       final parts = <String>[];
       for (final chunk in raw.split(RegExp(r'\n\s*\n|```'))) {
-        final t = chunk.replaceAll(RegExp(r'^```\w*$\n?', multi: true), '').trimRight();
+        final t = chunk
+            .replaceAll(RegExp(r'^```\w*$\n?', multiLine: true), '')
+            .trimRight();
         if (t.isNotEmpty && t != raw.substring(0, 0)) parts.add(t);
         if (parts.length >= maxSuggestions) break;
       }
@@ -156,8 +166,8 @@ class GhostCompletionController extends ChangeNotifier {
 
   void cycle() {
     if (_state.suggestions.isEmpty) return;
-    _state = _state.copyWith(
-        index: (_state.index + 1) % _state.suggestions.length);
+    _state =
+        _state.copyWith(index: (_state.index + 1) % _state.suggestions.length);
     notifyListeners();
   }
 
@@ -229,7 +239,8 @@ class InlineChatController extends ChangeNotifier {
     final provider = providerFor();
     if (provider == null) {
       _state = const InlineChatState(
-          error: 'Nenhum provider configurado. Adicione em Settings → AI Providers.');
+          error:
+              'Nenhum provider configurado. Adicione em Settings → AI Providers.');
       notifyListeners();
       return;
     }
@@ -254,8 +265,7 @@ class InlineChatController extends ChangeNotifier {
         messages: [
           const ChatRequestMessage(
               role: 'system',
-              content:
-                  'Você é um assistente de código dentro de um editor. '
+              content: 'Você é um assistente de código dentro de um editor. '
                   'Responda de forma direta e técnica.'),
           ChatRequestMessage(role: 'user', content: user.toString()),
         ],

@@ -196,7 +196,7 @@ class ChatService {
     this.systemPrompt = kDefaultAgentSystemPrompt,
   })  : repo = ChatRepository(db),
         _tools = tools,
-        workspaceRoots = List.unmodifiable(workspaceRoots),
+        _workspaceRoots = workspaceRoots,
         _settings = settings ?? _emptySettings,
         _toolExecutor = tools == null
             ? null
@@ -226,7 +226,8 @@ class ChatService {
   ApprovalGateway? get approvalGateway => _toolExecutor?.approvalGateway;
 
   /// Raízes do workspace para o ToolContext (sandbox real por conversa).
-  final List<String> workspaceRoots;
+  final List<String> _workspaceRoots;
+  List<String> get workspaceRoots => List.unmodifiable(_workspaceRoots);
 
   /// Capacidades presentes no host (ex.: {'filesystem','git'}); tools que
   /// exigem capacidade ausente nem vão ao prompt do modelo.
@@ -427,10 +428,13 @@ class ChatService {
           role: 'assistant',
           content: turn.text.isEmpty
               ? '[tool_calls]'
-              : '${turn.text}\n[tool_calls] ${jsonEncode([for (final tc in turn.toolCalls) {'callId': tc.callId, 'toolId': tc.toolId}])}'));
+              : '${turn.text}\n[tool_calls] ${jsonEncode([
+                      for (final tc in turn.toolCalls)
+                        {'callId': tc.callId, 'toolId': tc.toolId}
+                    ])}'));
       for (final tc in turn.toolCalls) {
-        allOutcomes[tc.callId] = await _runTool(
-            conversationId, tc, allOutcomes.values.toList());
+        allOutcomes[tc.callId] =
+            await _runTool(conversationId, tc, allOutcomes.values.toList());
         final o = allOutcomes[tc.callId]!;
         // Grava o status + resultado REAIS da tool no card persistido desta
         // mensagem assistente (senão o histórico mostraria 'pending' para
@@ -543,8 +547,8 @@ class ChatService {
           case UsageChunk():
             usage = usage.merge(chunk);
           case DoneChunk(:final finishReason):
-            cancelled = finishReason == 'cancelled' ||
-                (h?.isCancelled ?? false);
+            cancelled =
+                finishReason == 'cancelled' || (h?.isCancelled ?? false);
           case ErrorChunk():
             failure = chunk.failure;
         }
@@ -640,8 +644,8 @@ class ChatService {
     }
   }
 
-  Future<ToolCallOutcome> _runTool(String conversationId,
-      ToolCallStartChunk tc, List<ToolCallOutcome> done) async {
+  Future<ToolCallOutcome> _runTool(String conversationId, ToolCallStartChunk tc,
+      List<ToolCallOutcome> done) async {
     final ex = _toolExecutor!;
     _setToolStatus(conversationId, tc.callId, ToolCallStatus.executing);
     final outcome = await ex.run(
@@ -650,18 +654,21 @@ class ChatService {
       argsJson: tc.argsJson,
       conversationId: conversationId,
     );
-    _setToolStatus(conversationId, tc.callId, switch (outcome.kind) {
-      ToolCallOutcomeKind.succeeded => ToolCallStatus.succeeded,
-      ToolCallOutcomeKind.blocked => ToolCallStatus.blocked,
-      ToolCallOutcomeKind.failed => ToolCallStatus.failed,
-    });
+    _setToolStatus(
+        conversationId,
+        tc.callId,
+        switch (outcome.kind) {
+          ToolCallOutcomeKind.succeeded => ToolCallStatus.succeeded,
+          ToolCallOutcomeKind.blocked => ToolCallStatus.blocked,
+          ToolCallOutcomeKind.failed => ToolCallStatus.failed,
+        });
     final cb = onToolExecuted;
     if (cb != null) await cb(conversationId, outcome);
     return outcome;
   }
 
-  void _setToolStatus(String conversationId, String callId,
-      ToolCallStatus status) {
+  void _setToolStatus(
+      String conversationId, String callId, ToolCallStatus status) {
     final s = stateOf(conversationId);
     _emit(conversationId,
         s.copyWith(toolOutcomes: {...s.toolOutcomes, callId: status}));

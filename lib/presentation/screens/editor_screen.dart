@@ -15,12 +15,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/tool_executor.dart';
 import '../../domain/tools/tool_contract.dart';
 import '../../infrastructure/editor/editor_tools.dart' show resolveDart;
+import '../../infrastructure/process/process_utils.dart' show basenameOf;
 import '../state/app_state.dart';
 import '../state/editor_state.dart';
 import '../theme/vt_theme.dart';
-import 'editor_ai.dart';
-import 'editor_diff.dart';
-import 'language_features.dart';
+import '../editor/editor_ai.dart';
+import '../editor/editor_diff.dart';
+import '../editor/language_features.dart';
 
 // ============================================================================
 // Estado de UI do editor (por arquivo: bookmarks, local history, problemas)
@@ -109,8 +110,7 @@ class FileExtrasNotifier extends Notifier<FileExtrasState> {
     });
   }
 
-  List<_HistoryEntry> historyOf(String path) =>
-      state.history[path] ?? const [];
+  List<_HistoryEntry> historyOf(String path) => state.history[path] ?? const [];
 
   void restoreHistory(String path, _HistoryEntry e) {
     final list = [...state.history[path] ?? const <_HistoryEntry>[]];
@@ -163,8 +163,7 @@ Future<void> runRealDiagnostics(
       argsJson: jsonEncode({'path': path}),
     );
     if (outcome.kind == ToolCallOutcomeKind.succeeded) {
-      final decoded =
-          jsonDecode(outcome.resultText) as Map<String, Object?>;
+      final decoded = jsonDecode(outcome.resultText) as Map<String, Object?>;
       final items = [
         for (final raw in (decoded['items'] as List? ?? const []))
           _Problem(
@@ -288,8 +287,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final tab = s.activeTab;
     final preview = s.previewAt(s.activePath);
     final wantText = tab?.text ?? '';
-    if (_textController.text != wantText &&
-        (tab != null || preview != null)) {
+    if (_textController.text != wantText && (tab != null || preview != null)) {
       _textController.value = TextEditingValue(
         text: wantText,
         selection: tab == null
@@ -306,7 +304,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     for (var i = 0; i < line && i < lines.length; i++) {
       offset += lines[i].length + 1;
     }
-    final c = offset + col.clamp(0, line < lines.length ? lines[line].length : 0);
+    final c = offset +
+        col.clamp(0, line < lines.length ? lines[line].length : 0).toInt();
     return TextSelection.collapsed(offset: c);
   }
 
@@ -319,8 +318,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     while (_navIndex < _navStack.length - 1) {
       _navStack.removeLast();
     }
-    if (_navStack.isNotEmpty &&
-        _navStack.last == (path, line, col)) {
+    if (_navStack.isNotEmpty && _navStack.last == (path, line, col)) {
       return;
     }
     _navStack.add((path, line, col));
@@ -355,8 +353,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   void _scrollToLine(int line) {
     if (!_scrollController.hasClients) return;
     final vh = _scrollController.position.viewportDimension;
-    final target = (line * _lineHeight).clamp(0.0,
-        (_bufferLines.length * _lineHeight - vh / 2).clamp(0.0, double.infinity));
+    final target = (line * _lineHeight).clamp(
+        0.0,
+        (_bufferLines.length * _lineHeight - vh / 2)
+            .clamp(0.0, double.infinity));
     _scrollController.animateTo(target.toDouble(),
         duration: const Duration(milliseconds: 90), curve: Curves.easeOut);
   }
@@ -386,15 +386,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final tab = session.tabAt(path);
     if (tab == null) return;
     _rebuildBuffer(text);
-    final caret = _textController.selection.base;
-    _caretLine = text.substring(0, caret.clamp(0, text.length)).split('\n').length - 1;
-    _caretCol = caret -
-        (text.lastIndexOf('\n', caret == 0 ? 0 : caret - 1) + 1);
+    final caret = _textController.selection.base.offset;
+    final safeCaret = caret.clamp(0, text.length).toInt();
+    _caretLine = text.substring(0, safeCaret).split('\n').length - 1;
+    _caretCol = safeCaret -
+        (text.lastIndexOf('\n', safeCaret == 0 ? 0 : safeCaret - 1) + 1);
     ref.read(editorProvider.notifier).updateText(path, text);
     ref.read(fileExtrasProvider.notifier).scheduleSnapshot(path, () => text);
     _ghost?.schedule(
-      prefix: text.substring(0, caret.clamp(0, text.length)),
-      suffix: text.substring(caret.clamp(0, text.length)),
+      prefix: text.substring(0, safeCaret),
+      suffix: text.substring(safeCaret),
     );
   }
 
@@ -404,7 +405,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final before = _textController.value;
     final after = f(before.text, before.selection);
     if (after == before.text) return;
-    final caret = before.selection.baseOffset.clamp(0, after.length);
+    final caret = before.selection.baseOffset.clamp(0, after.length).toInt();
     _textController.value = TextEditingValue(
       text: after,
       selection: TextSelection.collapsed(offset: caret),
@@ -566,7 +567,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       final text = before.text.replaceRange(c.start, c.end, replacement);
       _textController.value = TextEditingValue(
           text: text,
-          selection: TextSelection.collapsed(offset: c.start + replacement.length));
+          selection:
+              TextSelection.collapsed(offset: c.start + replacement.length));
       _onTextChanged(text);
     }
   }
@@ -578,14 +580,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final sel = _textController.selection;
     final before = _textController.value;
     // remove o prefixo digitado (ex.: "main") antes de inserir
-    final lineStart = before.text.lastIndexOf('\n', sel.start == 0 ? 0 : sel.start - 1) + 1;
-    final wordPrefix = snippetWordPrefix(before.text.substring(lineStart), sel.start - lineStart);
-    final cutFrom = wordPrefix == s.prefix ? sel.start - wordPrefix.length : sel.start;
+    final lineStart =
+        before.text.lastIndexOf('\n', sel.start == 0 ? 0 : sel.start - 1) + 1;
+    final wordPrefix = snippetWordPrefix(
+        before.text.substring(lineStart), sel.start - lineStart);
+    final cutFrom =
+        wordPrefix == s.prefix ? sel.start - wordPrefix.length : sel.start;
     final text = before.text.replaceRange(
-        cutFrom.clamp(0, before.text.length), sel.end, body);
-    final caret = cursorOffset == null
-        ? cutFrom + body.length
-        : cutFrom + cursorOffset;
+        cutFrom.clamp(0, before.text.length).toInt(), sel.end, body);
+    final caret =
+        cursorOffset == null ? cutFrom + body.length : cutFrom + cursorOffset;
     _textController.value = TextEditingValue(
         text: text, selection: TextSelection.collapsed(offset: caret));
     _onTextChanged(text);
@@ -596,17 +600,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final sel = _textController.selection;
     if (!sel.isCollapsed) return;
     final text = _textController.text;
-    final lineStart = text.lastIndexOf('\n', sel.start == 0 ? 0 : sel.start - 1) + 1;
+    final lineStart =
+        text.lastIndexOf('\n', sel.start == 0 ? 0 : sel.start - 1) + 1;
     final upto = text.substring(lineStart, sel.start);
     final m = RegExp(r'([.#]?[a-zA-Z][\w.#>]*\*?\d*)$').firstMatch(upto);
     if (m == null) return;
     final expanded = emmetExpand(m.group(1)!);
     if (expanded == null) return;
-    final newText =
-        text.replaceRange(lineStart + m.start, sel.start, expanded);
+    final newText = text.replaceRange(lineStart + m.start, sel.start, expanded);
     _textController.value = TextEditingValue(
         text: newText,
-        selection: TextSelection.collapsed(offset: lineStart + m.start + expanded.length));
+        selection: TextSelection.collapsed(
+            offset: lineStart + m.start + expanded.length));
     _onTextChanged(newText);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Emmet: ${m.group(1)} → expandido'),
@@ -632,11 +637,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         final ins = _ghost!.accept();
         if (ins != null) {
           final sel = _textController.selection;
-          final text = _textController.text
-              .replaceRange(sel.start, sel.end, ins);
+          final text =
+              _textController.text.replaceRange(sel.start, sel.end, ins);
           _textController.value = TextEditingValue(
               text: text,
-              selection: TextSelection.collapsed(offset: sel.start + ins.length));
+              selection:
+                  TextSelection.collapsed(offset: sel.start + ins.length));
           _onTextChanged(text);
         }
         return KeyEventResult.handled;
@@ -671,11 +677,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       }
       return KeyEventResult.handled;
     }
-    if (ctrl && alt && logical == LogicalKeyboardKey.keyRightBracket) {
+    if (ctrl && alt && logical == LogicalKeyboardKey.bracketRight) {
       _splitNext(true);
       return KeyEventResult.handled;
     }
-    if (ctrl && alt && logical == LogicalKeyboardKey.keyLeftBracket) {
+    if (ctrl && alt && logical == LogicalKeyboardKey.bracketLeft) {
       _splitNext(false);
       return KeyEventResult.handled;
     }
@@ -711,7 +717,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       _clearExtraCursors();
       return KeyEventResult.handled;
     }
-    if (ctrl && logical == LogicalKeyboardKey.keyF8) {
+    if (ctrl && logical == LogicalKeyboardKey.f8) {
       _jumpProblem(forward: !shift);
       return KeyEventResult.handled;
     }
@@ -782,15 +788,15 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           duration: Duration(seconds: 2)));
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('dart format: ${outcome.failure?.message ?? 'falhou'}')));
+          content:
+              Text('dart format: ${outcome.failure?.message ?? 'falhou'}')));
     }
   }
 
   void _jumpProblem({required bool forward}) {
     final path = _activePath;
     if (path == null) return;
-    final problems =
-        ref.read(fileExtrasProvider).problems[path] ?? const [];
+    final problems = ref.read(fileExtrasProvider).problems[path] ?? const [];
     if (problems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text(
@@ -810,8 +816,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   // -------------------------------------------------------------- dialogs
 
   Future<void> _showGoToLine() async {
-    final controller = TextEditingController(
-        text: '${_caretLine + 1}:${_caretCol + 1}');
+    final controller =
+        TextEditingController(text: '${_caretLine + 1}:${_caretCol + 1}');
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -824,7 +830,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
         ],
       ),
     );
@@ -839,8 +846,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Future<void> _showGoToSymbol() async {
     final path = _activePath;
     if (path == null) return;
-    final outline = outlineOf(ref.read(editorProvider).activeTab?.text ?? '',
-        languageForPath(path));
+    final outline = outlineOf(
+        ref.read(editorProvider).activeTab?.text ?? '', languageForPath(path));
     final selected = await showDialog<OutlineEntry>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -861,7 +868,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                 if (outline.isEmpty)
                   const Padding(
                       padding: EdgeInsets.all(16),
-                      child: Text('Nenhuma declaração reconhecida neste arquivo.')),
+                      child: Text(
+                          'Nenhuma declaração reconhecida neste arquivo.')),
               ],
             ),
           ),
@@ -906,7 +914,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       autofocus: true,
                       onChanged: search,
                       onSubmitted: (v) {
-                        if (results.isNotEmpty) Navigator.pop(ctx, results.first);
+                        if (results.isNotEmpty)
+                          Navigator.pop(ctx, results.first);
                       },
                       decoration: const InputDecoration(
                           hintText: 'Ir para arquivo… (fuzzy)'),
@@ -918,7 +927,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                         for (final r in results)
                           ListTile(
                             dense: true,
-                            leading: const Icon(Icons.description_outlined, size: 15),
+                            leading: const Icon(Icons.description_outlined,
+                                size: 15),
                             title: Text(r, overflow: TextOverflow.ellipsis),
                             onTap: () => Navigator.pop(ctx, r),
                           ),
@@ -926,7 +936,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                             results.isEmpty)
                           const Padding(
                               padding: EdgeInsets.all(16),
-                              child: Text('Nenhum match (busca lexical no workspace).')),
+                              child: Text(
+                                  'Nenhum match (busca lexical no workspace).')),
                       ],
                     ),
                   ),
@@ -946,7 +957,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Future<void> _showHistory() async {
     final path = _activePath;
     if (path == null) return;
-    final entries = ref.read(fileExtrasProvider).historyOf(path);
+    final entries = ref.read(fileExtrasProvider.notifier).historyOf(path);
     final picked = await showDialog<_HistoryEntry>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -994,7 +1005,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (!dir.existsSync()) return const [];
     final stack = <Directory>[dir];
     var scanned = 0;
-    const skipDirs = {'.git', 'node_modules', '.dart_tool', 'build', 'target', '.idea'};
+    const skipDirs = {
+      '.git',
+      'node_modules',
+      '.dart_tool',
+      'build',
+      'target',
+      '.idea'
+    };
     while (stack.isNotEmpty && scanned < 20000) {
       final d = stack.removeLast();
       try {
@@ -1007,7 +1025,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             continue;
           }
           if (e is! File) continue;
-          final rel = e.path.substring(root.length).replaceFirst(RegExp(r'^[/\\]'), '');
+          final rel =
+              e.path.substring(root.length).replaceFirst(RegExp(r'^[/\\]'), '');
           final score = _fuzzyScore(rel.toLowerCase(), q);
           if (score > 0) out.add((score, e.path));
         }
@@ -1039,7 +1058,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         'field' => Icons.tag,
         'heading' => Icons.title,
         'section' => Icons.segment,
-        _ => Icons.symbol_outlined,
+        _ => Icons.search,
       };
 
   // ------------------------------------------------------------------- build
@@ -1048,7 +1067,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   Widget build(BuildContext context) {
     final session = ref.watch(editorProvider);
     final extras = ref.watch(fileExtrasProvider);
-    ref.listen<EditorSession>(editorProvider, (_, next) => _syncFromSession(next));
+    ref.listen<EditorSession>(
+        editorProvider, (_, next) => _syncFromSession(next));
     _syncFromSession(session);
 
     final theme = Theme.of(context);
@@ -1059,7 +1079,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final groupTabs = session.groupTabs;
 
     return CallbackShortcut(
-      onKeyPressed: (_) {},
+      onKeyPressed: () {},
       child: Focus(
         focusNode: _editorFocus,
         autofocus: false,
@@ -1072,10 +1092,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               Material(
                 color: vt.riskCritical.withOpacity(0.15),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: Row(
                     children: [
-                      Icon(Icons.error_outline, size: 15, color: vt.riskCritical),
+                      Icon(Icons.error_outline,
+                          size: 15, color: vt.riskCritical),
                       const SizedBox(width: 8),
                       Expanded(
                           child: Text(error.message,
@@ -1085,8 +1107,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           iconSize: 15,
                           tooltip: 'Dispensar',
                           icon: const Icon(Icons.close),
-                          onPressed: () =>
-                              ref.read(editorProvider.notifier).clearError(error.message.hashCode.toString())),
+                          onPressed: () => ref
+                              .read(editorProvider.notifier)
+                              .clearError(error.message.hashCode.toString())),
                     ],
                   ),
                 ),
@@ -1104,14 +1127,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                           child: session.split == SplitMode.none || tab == null
                               ? _editorArea(session, tab, preview, extras)
                               : Flex(
-                                  direction: session.split == SplitMode.horizontal
-                                      ? Axis.horizontal
-                                      : Axis.vertical,
+                                  direction:
+                                      session.split == SplitMode.horizontal
+                                          ? Axis.horizontal
+                                          : Axis.vertical,
                                   children: [
-                                    Expanded(child: _editorArea(session, tab, preview, extras)),
+                                    Expanded(
+                                        child: _editorArea(
+                                            session, tab, preview, extras)),
                                     const Divider(thickness: 1),
                                     Expanded(
-                                        child: _secondaryPane(session, groupTabs, extras)),
+                                        child: _secondaryPane(
+                                            session, groupTabs, extras)),
                                   ],
                                 ),
                         ),
@@ -1146,27 +1173,40 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         runSpacing: 2,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          _toolBtn(Icons.folder_outlined, 'Árvore de arquivos', () => setState(() => _treeOpen = !_treeOpen)),
-          _toolBtn(Icons.psychology_outlined, 'Outline', () => setState(() => _outlineOpen = !_outlineOpen)),
+          _toolBtn(Icons.folder_outlined, 'Árvore de arquivos',
+              () => setState(() => _treeOpen = !_treeOpen)),
+          _toolBtn(Icons.psychology_outlined, 'Outline',
+              () => setState(() => _outlineOpen = !_outlineOpen)),
           const SizedBox(width: 6),
           _toolBtn(Icons.arrow_back, 'Voltar (Alt+←)', _back),
           _toolBtn(Icons.arrow_forward, 'Avançar (Alt+→)', _forward),
           const SizedBox(width: 6),
-          _toolBtn(Icons.looks_one_outlined, 'Ir para linha (Ctrl+G)', _showGoToLine),
-          _toolBtn(Icons.symbol_outlined, 'Ir para símbolo (Ctrl+Shift+G)', _showGoToSymbol),
-          _toolBtn(Icons.search_outlined, 'Ir para arquivo (Ctrl+P)', _showGoToFile),
+          _toolBtn(Icons.looks_one_outlined, 'Ir para linha (Ctrl+G)',
+              _showGoToLine),
+          _toolBtn(
+              Icons.search, 'Ir para símbolo (Ctrl+Shift+G)', _showGoToSymbol),
+          _toolBtn(
+              Icons.search_outlined, 'Ir para arquivo (Ctrl+P)', _showGoToFile),
           _toolBtn(Icons.history, 'Local history', _showHistory),
           _toolBtn(Icons.bookmark_border, 'Bookmark (Ctrl+Shift+B)', () {
             final p = _activePath;
             if (p != null) {
-              ref.read(fileExtrasProvider.notifier).toggleBookmark(p, _caretLine);
+              ref
+                  .read(fileExtrasProvider.notifier)
+                  .toggleBookmark(p, _caretLine);
             }
           }),
-          _toolBtn(Icons.bug_report_outlined, 'Próximo problema (Ctrl+F8)', () => _jumpProblem(forward: true)),
-          _toolBtn(Icons.bug_check_outlined, 'Problema anterior (Ctrl+Shift+F8)', () => _jumpProblem(forward: false)),
+          _toolBtn(Icons.bug_report_outlined, 'Próximo problema (Ctrl+F8)',
+              () => _jumpProblem(forward: true)),
+          _toolBtn(
+              Icons.bug_report_outlined,
+              'Problema anterior (Ctrl+Shift+F8)',
+              () => _jumpProblem(forward: false)),
           const SizedBox(width: 6),
-          _toolBtn(Icons.compare_arrows, 'Diff buffer × disco', () => setState(() => _diffOpen = !_diffOpen)),
-          _toolBtn(Icons.smart_toy_outlined, 'IA inline', () => setState(() => _aiPanelOpen = !_aiPanelOpen)),
+          _toolBtn(Icons.compare_arrows, 'Diff buffer × disco',
+              () => setState(() => _diffOpen = !_diffOpen)),
+          _toolBtn(Icons.smart_toy_outlined, 'IA inline',
+              () => setState(() => _aiPanelOpen = !_aiPanelOpen)),
           _toolBtn(Icons.checklist_rounded, 'Analyze (dart analyze)', () {
             final p = _activePath;
             if (p != null) {
@@ -1174,17 +1214,35 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             }
           }),
           const SizedBox(width: 6),
-          _toolBtn(Icons.view_column_outlined, 'Split horizontal',
+          _toolBtn(
+              Icons.view_column_outlined,
+              'Split horizontal',
               () => ref.read(editorProvider.notifier).setSplit(
-                  session.split == SplitMode.horizontal ? SplitMode.none : SplitMode.horizontal)),
-          _toolBtn(Icons.view_agenda_outlined, 'Split vertical',
+                  session.split == SplitMode.horizontal
+                      ? SplitMode.none
+                      : SplitMode.horizontal)),
+          _toolBtn(
+              Icons.view_agenda_outlined,
+              'Split vertical',
               () => ref.read(editorProvider.notifier).setSplit(
-                  session.split == SplitMode.vertical ? SplitMode.none : SplitMode.vertical)),
+                  session.split == SplitMode.vertical
+                      ? SplitMode.none
+                      : SplitMode.vertical)),
           const SizedBox(width: 6),
-          _toolBtn(Icons.wrap_text, 'Word wrap', () => setState(() => _wordWrap = !_wordWrap)),
-          _toolBtn(Icons.text_increase, 'Zoom +', () => setState(() => _fontScale = (_fontScale + 1).clamp(10, 28))),
-          _toolBtn(Icons.text_decrease, 'Zoom −', () => setState(() => _fontScale = (_fontScale - 1).clamp(10, 28))),
-          _toolBtn(Icons.cleaning_services_outlined, 'Trim trailing whitespace', _trimTrailing),
+          _toolBtn(Icons.wrap_text, 'Word wrap',
+              () => setState(() => _wordWrap = !_wordWrap)),
+          _toolBtn(
+              Icons.text_increase,
+              'Zoom +',
+              () => setState(() =>
+                  _fontScale = (_fontScale + 1).clamp(10, 28).toDouble())),
+          _toolBtn(
+              Icons.text_decrease,
+              'Zoom −',
+              () => setState(() =>
+                  _fontScale = (_fontScale - 1).clamp(10, 28).toDouble())),
+          _toolBtn(Icons.cleaning_services_outlined, 'Trim trailing whitespace',
+              _trimTrailing),
           PopupMenuButton<String>(
             tooltip: 'EOL / Encoding',
             icon: const Icon(Icons.subtitles_outlined, size: 18),
@@ -1199,12 +1257,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'eol:lf', child: Text('EOL: LF (\\n)')),
-              PopupMenuItem(value: 'eol:crlf', child: Text('EOL: CRLF (\\r\\n)')),
-              PopupMenuItem(value: 'eol:auto', child: Text('EOL: auto (detectado)')),
+              PopupMenuItem(
+                  value: 'eol:crlf', child: Text('EOL: CRLF (\\r\\n)')),
+              PopupMenuItem(
+                  value: 'eol:auto', child: Text('EOL: auto (detectado)')),
               PopupMenuDivider(),
-              PopupMenuItem(value: 'enc:utf-8', child: Text('Encoding: UTF-8 (na reabertura)')),
-              PopupMenuItem(value: 'enc:utf16le', child: Text('Encoding: UTF-16LE')),
-              PopupMenuItem(value: 'enc:latin1', child: Text('Encoding: Latin-1')),
+              PopupMenuItem(
+                  value: 'enc:utf-8',
+                  child: Text('Encoding: UTF-8 (na reabertura)')),
+              PopupMenuItem(
+                  value: 'enc:utf16le', child: Text('Encoding: UTF-16LE')),
+              PopupMenuItem(
+                  value: 'enc:latin1', child: Text('Encoding: Latin-1')),
             ],
           ),
           if (hasTab) ...[
@@ -1222,7 +1286,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             TextButton.icon(
               onPressed: () =>
                   unawaited(ref.read(editorProvider.notifier).saveAll()),
-              icon: const Icon(Icons.save_all, size: 16),
+              icon: const Icon(Icons.save, size: 16),
               label: const Text('Salvar tudo'),
             ),
           ],
@@ -1233,8 +1297,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               label: Text(session.groupPath!.split('/').last,
                   style: const TextStyle(fontSize: 11)),
               deleteIcon: const Icon(Icons.close, size: 14),
-              onDeleted: () =>
-                  ref.read(editorProvider.notifier).setGroup(null),
+              onDeleted: () => ref.read(editorProvider.notifier).setGroup(null),
             ),
         ],
       ),
@@ -1242,7 +1305,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   }
 
   Widget _toolBtn(IconData icon, String tooltip, VoidCallback onTap) =>
-      IconButton(icon: Icon(icon, size: 17), tooltip: tooltip, onPressed: onTap);
+      IconButton(
+          icon: Icon(icon, size: 17), tooltip: tooltip, onPressed: onTap);
 
   // ---------------------------------------------------------------- tab bar
 
@@ -1266,7 +1330,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               scrollDirection: Axis.horizontal,
               children: [
                 for (final t in visible)
-                  _tabChip(t, active: t.path == session.activePath,
+                  _tabChip(t,
+                      active: t.path == session.activePath,
                       dirtyCount: groupTabs.where((x) => x.isDirty).length),
                 if (overflow > 0)
                   Padding(
@@ -1316,7 +1381,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
-  Widget _tabChip(EditorTab t, {required bool active, required int dirtyCount}) {
+  Widget _tabChip(EditorTab t,
+      {required bool active, required int dirtyCount}) {
     final theme = Theme.of(context);
     final vt = VtTheme.of(context);
     return GestureDetector(
@@ -1326,7 +1392,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         decoration: BoxDecoration(
           color: active ? vt.panel : Colors.transparent,
           border: Border(
-            top: BorderSide(color: active ? vt.accent : Colors.transparent, width: 2),
+            top: BorderSide(
+                color: active ? vt.accent : Colors.transparent, width: 2),
             right: BorderSide(color: theme.dividerColor, width: 0.5),
           ),
         ),
@@ -1337,7 +1404,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             if (t.pinned)
               Padding(
                   padding: const EdgeInsets.only(right: 4),
-                  child: Icon(Icons.push_pin, size: 12, color: theme.hintColor)),
+                  child:
+                      Icon(Icons.push_pin, size: 12, color: theme.hintColor)),
             Flexible(
               child: Text(
                 t.preview ? '${t.name} (preview)' : t.name,
@@ -1380,7 +1448,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         title: Text('Fechar "${t.name}" com alterações?'),
         content: const Text('O buffer tem mudanças ainda não salvas em disco.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
           OutlinedButton(
               onPressed: () => Navigator.pop(ctx, 'discard'),
               child: const Text('Descartar')),
@@ -1411,7 +1481,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             onSubmitted: (v) => Navigator.pop(ctx, v),
             decoration: const InputDecoration(hintText: 'ex.: lib/foo.dart')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar')),
         ],
       ),
     );
@@ -1419,7 +1491,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final ws = ref.read(focusedWorkspacePathProvider);
     if (ws == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Abra um workspace primeiro (Workspaces → adicionar).')));
+          content:
+              Text('Abra um workspace primeiro (Workspaces → adicionar).')));
       return;
     }
     final full = '$ws/${name.trim()}';
@@ -1429,8 +1502,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       if (!await f.exists()) await f.writeAsString('');
     } on FileSystemException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Falha criando "$full": ${e.message}')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Falha criando "$full": ${e.message}')));
       }
       return;
     }
@@ -1459,9 +1532,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   Widget _secondaryPane(EditorSession session, List<EditorTab> groupTabs,
       FileExtrasState extras) {
-    final others = groupTabs.where((t) => t.path != session.activePath).toList();
+    final others =
+        groupTabs.where((t) => t.path != session.activePath).toList();
     if (others.isEmpty) {
-      return const Center(child: Text('Segunda pane: abra outra aba (Ctrl+Alt+←/→ troca).'));
+      return const Center(
+          child: Text('Segunda pane: abra outra aba (Ctrl+Alt+←/→ troca).'));
     }
     final second = others.first;
     return _editorArea(session, second, null, extras, secondary: true);
@@ -1508,7 +1583,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               Material(
                 color: vt.riskMedium.withOpacity(0.15),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   child: Text(
                       '⚠ Arquivo grande (> ${kEditSizeWarning ~/ 1024} KiB): edição possível, mas acima de '
                       '${kEditSizeHardLimit ~/ (1024 * 1024)} MiB vira somente-leitura.',
@@ -1560,8 +1636,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               final visibleCount =
                   ((MediaQuery.sizeOf(context).height / _lineHeight) + 6)
                       .ceil();
-              final from = (first - 2).clamp(0, lines.length);
-              final to = (first + visibleCount).clamp(0, lines.length);
+              final from = (first - 2).clamp(0, lines.length).toInt();
+              final to = (first + visibleCount).clamp(0, lines.length).toInt();
               return ListView.builder(
                 controller: _mirrorScroll(from, to, lines.length),
                 shrinkWrap: true,
@@ -1575,7 +1651,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     height: _lineHeight,
                     alignment: Alignment.centerRight,
                     padding: const EdgeInsets.only(right: 6),
-                    color: ln == _caretLine ? vt.accent.withOpacity(0.08) : null,
+                    color:
+                        ln == _caretLine ? vt.accent.withOpacity(0.08) : null,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1593,7 +1670,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                         Text('${ln + 1}',
                             style: TextStyle(
                                 fontFamily: 'monospace',
-                                fontSize: (_fontScale - 2).clamp(9, 14),
+                                fontSize:
+                                    (_fontScale - 2).clamp(9, 14).toDouble(),
                                 color: theme.hintColor)),
                       ],
                     ),
@@ -1618,7 +1696,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   fontSize: _fontScale,
                   height: (_lineHeight / _fontScale)),
               decoration: const InputDecoration(
-                  isDense: true, border: InputBorder.none,
+                  isDense: true,
+                  border: InputBorder.none,
                   contentPadding: EdgeInsets.fromLTRB(8, 6, 8, 40)),
               onChanged: _onTextChanged,
               onTap: () => _updateCaretFromController(),
@@ -1638,9 +1717,10 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final sel = _textController.selection;
     if (!sel.isValid) return;
     final text = _textController.text;
-    final offset = sel.baseOffset.clamp(0, text.length);
+    final offset = sel.baseOffset.clamp(0, text.length).toInt();
     final line = text.substring(0, offset).split('\n').length - 1;
-    final col = offset - (text.lastIndexOf('\n', offset == 0 ? 0 : offset - 1) + 1);
+    final col =
+        offset - (text.lastIndexOf('\n', offset == 0 ? 0 : offset - 1) + 1);
     if (line != _caretLine || col != _caretCol) {
       final path = _activePath;
       if (path != null) {
@@ -1728,8 +1808,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   width: 44,
                   child: Text('${i + 1}',
                       textAlign: TextAlign.right,
-                      style: TextStyle(
-                          fontSize: 11, color: theme.hintColor))),
+                      style: TextStyle(fontSize: 11, color: theme.hintColor))),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(lines[i],
@@ -1737,7 +1816,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     overflow: TextOverflow.clip,
                     style: TextStyle(
                         fontFamily: 'monospace',
-                        fontSize: (_fontScale - 1).clamp(9, 24),
+                        fontSize: (_fontScale - 1).clamp(9, 24).toDouble(),
                         color: theme.textTheme.bodySmall?.color)),
               ),
             ],
@@ -1749,8 +1828,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   Widget _previewView(EditorPreview p, ThemeData theme, VtColors vt) {
     final ext = p.path.toLowerCase().split('.').last;
-    final isImage = const {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'}
-        .contains(ext);
+    final isImage =
+        const {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'}.contains(ext);
     return Container(
       color: vt.codeBackground,
       padding: const EdgeInsets.all(12),
@@ -1775,7 +1854,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   }
                   if (!snap.hasData) {
                     return const SizedBox(
-                        width: 20, height: 20, child: CircularProgressIndicator());
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator());
                   }
                   return Image.memory(
                     snap.data!,
@@ -1804,7 +1885,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final outline = tab == null
         ? const <OutlineEntry>[]
         : outlineOf(tab.text, languageForPath(tab.path));
-    final problems = tab == null ? const <_Problem>[] : (extras.problems[tab.path] ?? const []);
+    final problems = tab == null
+        ? const <_Problem>[]
+        : (extras.problems[tab.path] ?? const []);
     final errInfo = tab == null ? null : extras.problemErrors[tab.path];
     return SizedBox(
       width: 250,
@@ -1855,10 +1938,11 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                                 ? VtTheme.of(context).riskCritical
                                 : VtTheme.of(context).riskMedium),
                         title: Text('${p.line}:${p.column} ${p.message}',
-                            maxLines: 2,
-                            style: const TextStyle(fontSize: 11)),
-                        onTap: () =>
-                            _goToLocation(tab.path, p.line - 1, p.column - 1),
+                            maxLines: 2, style: const TextStyle(fontSize: 11)),
+                        onTap: tab == null
+                            ? null
+                            : () => _goToLocation(
+                                tab.path, p.line - 1, p.column - 1),
                       ),
                     const Divider(),
                   ],
@@ -1870,7 +1954,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     InkWell(
                       onTap: () => _goToLocation(tab?.path ?? '', e.line, 0),
                       child: Padding(
-                        padding: EdgeInsets.only(left: 8.0 + e.indent, right: 8),
+                        padding:
+                            EdgeInsets.only(left: 8.0 + e.indent, right: 8),
                         child: Row(
                           children: [
                             Icon(_outlineIcon(e.kind),
@@ -1908,8 +1993,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final changed = result.changedHunks;
     return Container(
       height: 260,
-      decoration:
-          BoxDecoration(border: Border(top: BorderSide(color: theme.dividerColor))),
+      decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: theme.dividerColor))),
       child: Column(
         children: [
           Padding(
@@ -1923,22 +2008,26 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                 Checkbox(
                     visualDensity: VisualDensity.compact,
                     value: _ignoreWsInDiff,
-                    onChanged: (v) => setState(() => _ignoreWsInDiff = v ?? false)),
-                const Text('ignorar whitespace', style: TextStyle(fontSize: 11)),
+                    onChanged: (v) =>
+                        setState(() => _ignoreWsInDiff = v ?? false)),
+                const Text('ignorar whitespace',
+                    style: TextStyle(fontSize: 11)),
                 const Spacer(),
                 IconButton(
                     icon: const Icon(Icons.navigate_before, size: 16),
                     tooltip: 'Hunk anterior',
                     onPressed: () {
                       if (changed.isEmpty) return;
-                      setState(() => _diffCaret = (_diffCaret - 1) % changed.length);
+                      setState(
+                          () => _diffCaret = (_diffCaret - 1) % changed.length);
                     }),
                 IconButton(
                     icon: const Icon(Icons.navigate_next, size: 16),
                     tooltip: 'Próximo hunk',
                     onPressed: () {
                       if (changed.isEmpty) return;
-                      setState(() => _diffCaret = (_diffCaret + 1) % changed.length);
+                      setState(
+                          () => _diffCaret = (_diffCaret + 1) % changed.length);
                     }),
                 TextButton(
                     onPressed: () {
@@ -1987,7 +2076,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                 };
                 // word-diff nos inserts pareados com deletes vizinhos
                 List<(String, bool)>? words;
-                if (l.op == DiffOp.insert && i > 0 && result.lines[i - 1].op == DiffOp.delete) {
+                if (l.op == DiffOp.insert &&
+                    i > 0 &&
+                    result.lines[i - 1].op == DiffOp.delete) {
                   words = wordDiff(result.lines[i - 1].text, l.text);
                 }
                 return Container(
@@ -2019,24 +2110,25 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                               style: const TextStyle(
                                   fontFamily: 'monospace', fontSize: 12))),
                       Expanded(
-                        child: words == null
-                            ? SelectableText(l.text,
-                                style: const TextStyle(
-                                    fontFamily: 'monospace', fontSize: 12))
-                            : SelectableText.rich(TextSpan(
-                                style: const TextStyle(
-                                    fontFamily: 'monospace', fontSize: 12),
-                                children: [
-                                  for (final (w, hot) in words)
-                                    TextSpan(
-                                        text: w,
-                                        style: hot
-                                            ? TextStyle(
-                                                background:
-                                                    vt.diffAddition.withOpacity(0.5))
-                                            : null),
-                                ],
-                              ))),
+                          child: words == null
+                              ? SelectableText(l.text,
+                                  style: const TextStyle(
+                                      fontFamily: 'monospace', fontSize: 12))
+                              : SelectableText.rich(TextSpan(
+                                  style: const TextStyle(
+                                      fontFamily: 'monospace', fontSize: 12),
+                                  children: [
+                                    for (final (w, hot) in words)
+                                      TextSpan(
+                                          text: w,
+                                          style: hot
+                                              ? TextStyle(
+                                                  backgroundColor: vt
+                                                      .diffAddition
+                                                      .withOpacity(0.5))
+                                              : null),
+                                  ],
+                                ))),
                     ],
                   ),
                 );
@@ -2058,8 +2150,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final code = InlineChatController.extractCodeBlock(state.response);
     return Container(
       height: 220,
-      decoration:
-          BoxDecoration(border: Border(top: BorderSide(color: theme.dividerColor))),
+      decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: theme.dividerColor))),
       padding: const EdgeInsets.all(8),
       child: Row(
         children: [
@@ -2082,8 +2174,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       final selection = sel.isValid && !sel.isCollapsed
                           ? text.substring(sel.start, sel.end)
                           : '';
-                      chat.run(_chatAction, selection,
-                          wholeFileContext: text);
+                      chat.run(_chatAction, selection, wholeFileContext: text);
                     },
                     child: const Text('Rodar na seleção')),
                 const SizedBox(height: 6),
@@ -2096,7 +2187,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     value: ref.read(selectedModelProvider),
                     hint: const Text('modelo…', style: TextStyle(fontSize: 11)),
                     items: [
-                      for (final p in ref.read(vtAppProvider).chat.providers.all)
+                      for (final p
+                          in ref.read(vtAppProvider).chat.providers.all)
                         for (final m in p.models)
                           DropdownMenuItem(
                               value: m.id,
@@ -2150,7 +2242,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                         _textController.value = TextEditingValue(
                             text: newT,
                             selection: TextSelection.collapsed(
-                                offset: (sel.isValid ? sel.start : text.length) + code.length));
+                                offset:
+                                    (sel.isValid ? sel.start : text.length) +
+                                        code.length));
                         _onTextChanged(newT);
                         chat.reset();
                       },
@@ -2198,7 +2292,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             const SizedBox(width: 10),
             Text('Linhas ${_bufferLines.length}'),
             const SizedBox(width: 10),
-            if (tab != null) Text('EOL ${tab.eol.toUpperCase()} · ${tab.encoding}'),
+            if (tab != null)
+              Text('EOL ${tab.eol.toUpperCase()} · ${tab.encoding}'),
             const SizedBox(width: 10),
             if (_extraCursors.isNotEmpty)
               Text('cursors: ${_extraCursors.length + 1}'),
@@ -2235,7 +2330,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 /// Wrapper mínimo para atalhos globais da tela (mantém API estável caso o
 /// projeto adicione keybindings centralizados depois).
 class CallbackShortcut extends StatelessWidget {
-  const CallbackShortcut({super.key, required this.onKeyPressed, required this.child});
+  const CallbackShortcut(
+      {super.key, required this.onKeyPressed, required this.child});
   final VoidCallback onKeyPressed;
   final Widget child;
 
@@ -2274,16 +2370,14 @@ class _TreeListState extends ConsumerState<_TreeList> {
       final resolved = await app.sandbox.resolveReadable(dir, ctx);
       final d = Directory(resolved);
       if (!d.existsSync()) return const [];
-      final entities = d
-          .listSync(followLinks: false)
-          .whereType<FileSystemEntity>()
-          .toList()
-        ..sort((a, b) {
-          final ad = a is Directory ? 0 : 1;
-          final bd = b is Directory ? 0 : 1;
-          if (ad != bd) return ad.compareTo(bd);
-          return basenameOf(a.path).compareTo(basenameOf(b.path));
-        });
+      final entities =
+          d.listSync(followLinks: false).whereType<FileSystemEntity>().toList()
+            ..sort((a, b) {
+              final ad = a is Directory ? 0 : 1;
+              final bd = b is Directory ? 0 : 1;
+              if (ad != bd) return ad.compareTo(bd);
+              return basenameOf(a.path).compareTo(basenameOf(b.path));
+            });
       return [
         for (final e in entities.take(400))
           _TreeEntry(
@@ -2325,8 +2419,9 @@ class _TreeListState extends ConsumerState<_TreeList> {
                 onLoadChildren: _load,
                 onOpenFile: (p) =>
                     ref.read(editorProvider.notifier).openFile(p),
-                onPinFile: (p) =>
-                    ref.read(editorProvider.notifier).openFile(p, forcePin: true),
+                onPinFile: (p) => ref
+                    .read(editorProvider.notifier)
+                    .openFile(p, forcePin: true),
               ),
           ],
         );
@@ -2336,7 +2431,8 @@ class _TreeListState extends ConsumerState<_TreeList> {
 }
 
 class _TreeEntry {
-  const _TreeEntry({required this.path, required this.name, required this.isDir});
+  const _TreeEntry(
+      {required this.path, required this.name, required this.isDir});
   final String path;
   final String name;
   final bool isDir;
@@ -2394,8 +2490,9 @@ class _TreeNodeState extends State<_TreeNode> {
           onTap: widget.entry.isDir
               ? _toggle
               : () => widget.onOpenFile(widget.entry.path),
-          onDoubleTap:
-              widget.entry.isDir ? null : () => widget.onPinFile(widget.entry.path),
+          onDoubleTap: widget.entry.isDir
+              ? null
+              : () => widget.onPinFile(widget.entry.path),
           child: Padding(
             padding: EdgeInsets.only(
                 left: 6.0 + widget.depth * 12.0, top: 2, bottom: 2, right: 6),
@@ -2403,9 +2500,7 @@ class _TreeNodeState extends State<_TreeNode> {
               children: [
                 Icon(
                     widget.entry.isDir
-                        ? (_expanded
-                            ? Icons.expand_more
-                            : Icons.chevron_right)
+                        ? (_expanded ? Icons.expand_more : Icons.chevron_right)
                         : Icons.description_outlined,
                     size: 14,
                     color: theme.hintColor),
@@ -2416,8 +2511,7 @@ class _TreeNodeState extends State<_TreeNode> {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                       color: hidden ? theme.disabledColor : null,
-                      fontWeight:
-                          widget.entry.isDir ? FontWeight.w600 : null),
+                      fontWeight: widget.entry.isDir ? FontWeight.w600 : null),
                 )),
               ],
             ),
@@ -2428,7 +2522,9 @@ class _TreeNodeState extends State<_TreeNode> {
             const Padding(
                 padding: EdgeInsets.only(left: 28),
                 child: SizedBox(
-                    width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)))
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2)))
           else
             for (final c in _children ?? const <_TreeEntry>[])
               _TreeNode(

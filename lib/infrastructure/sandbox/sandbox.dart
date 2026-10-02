@@ -59,6 +59,13 @@ class WorkspaceSandbox implements SandboxGateway {
 
   static String _canonical(String p) => lexicalNormalize(normalizeSlashes(p));
 
+  /// Atualiza as raízes confiáveis sem recriar o sandbox durante a sessão.
+  void setRoots(Iterable<String> roots) {
+    _roots = roots.map(_canonical).toList(growable: false);
+  }
+
+  List<String> get roots => List.unmodifiable(_roots);
+
   String _normalize(String rawPath, List<String> roots) {
     if (rawPath.isEmpty) {
       throw VtFailure(
@@ -102,8 +109,7 @@ class WorkspaceSandbox implements SandboxGateway {
     // intermediário redireciona toda a operação para fora das roots sem que o
     // componente final seja link.
     for (final candidate in _segmentsWithAncestors(p)) {
-      final linkType =
-          FileSystemEntity.typeSync(candidate, followLinks: false);
+      final linkType = FileSystemEntity.typeSync(candidate, followLinks: false);
       if (linkType == FileSystemEntityType.link) {
         throw VtFailure(
           code: VtErrorCode.permissionDenied,

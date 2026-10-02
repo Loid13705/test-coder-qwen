@@ -52,6 +52,12 @@ typedef _BindTextC = Int32 Function(
     Pointer<Void>, Int32, Pointer<Utf8>, Int32, Pointer<Void>);
 typedef _BindTextDart = int Function(
     Pointer<Void>, int, Pointer<Utf8>, int, Pointer<Void>);
+typedef _BindInt64C = Int32 Function(Pointer<Void>, Int32, Int64);
+typedef _BindInt64Dart = int Function(Pointer<Void>, int, int);
+typedef _BindDoubleC = Int32 Function(Pointer<Void>, Int32, Double);
+typedef _BindDoubleDart = int Function(Pointer<Void>, int, double);
+typedef _BindNullC = Int32 Function(Pointer<Void>, Int32);
+typedef _BindNullDart = int Function(Pointer<Void>, int);
 typedef _ErrMsgC = Pointer<Utf8> Function(Pointer<Void>);
 typedef _ErrMsgDart = Pointer<Utf8> Function(Pointer<Void>);
 typedef _ChangesC = Int32 Function(Pointer<Void>);
@@ -60,7 +66,6 @@ typedef _ChangesDart = int Function(Pointer<Void>);
 const _sqliteOk = 0;
 const _sqliteRow = 100;
 const _sqliteDone = 101;
-
 
 class SqliteException implements Exception {
   const SqliteException(this.code, this.message);
@@ -74,8 +79,8 @@ class SqliteUnavailableError implements Exception {
   const SqliteUnavailableError();
   @override
   String toString() =>
-      'libsqlite3 não encontrada no sistema — instale a biblioteca ou habilite '
-      'o plugin sqlite3_flutter_libs no build Flutter (estado real: missing_binary).';
+      'SQLite nativo não encontrado — no Windows, winsqlite3.dll requer '
+      'Windows 10 versão 1903 ou posterior (estado real: missing_binary).';
 }
 
 class SqliteDb {
@@ -89,12 +94,18 @@ class SqliteDb {
         _lib.lookupFunction<_FinalizeC, _FinalizeDart>('sqlite3_finalize');
     _colText =
         _lib.lookupFunction<_ColTextC, _ColTextDart>('sqlite3_column_text');
-    _colName = _lib.lookupFunction<_ColTextC, _ColTextDart>(
-        'sqlite3_column_name');
+    _colName =
+        _lib.lookupFunction<_ColTextC, _ColTextDart>('sqlite3_column_name');
     _colCount =
         _lib.lookupFunction<_ColCountC, _ColCountDart>('sqlite3_column_count');
     _bindText =
         _lib.lookupFunction<_BindTextC, _BindTextDart>('sqlite3_bind_text');
+    _bindInt64 =
+        _lib.lookupFunction<_BindInt64C, _BindInt64Dart>('sqlite3_bind_int64');
+    _bindDouble = _lib
+        .lookupFunction<_BindDoubleC, _BindDoubleDart>('sqlite3_bind_double');
+    _bindNull =
+        _lib.lookupFunction<_BindNullC, _BindNullDart>('sqlite3_bind_null');
     _errMsg = _lib.lookupFunction<_ErrMsgC, _ErrMsgDart>('sqlite3_errmsg');
     _changes = _lib.lookupFunction<_ChangesC, _ChangesDart>('sqlite3_changes');
   }
@@ -110,13 +121,16 @@ class SqliteDb {
   late final Pointer<Utf8> Function(Pointer<Void>, int) _colName;
   late final _ColCountDart _colCount;
   late final _BindTextDart _bindText;
+  late final _BindInt64Dart _bindInt64;
+  late final _BindDoubleDart _bindDouble;
+  late final _BindNullDart _bindNull;
   late final _ErrMsgDart _errMsg;
   late final int Function(Pointer<Void>) _changes;
   bool _closed = false;
 
   String _lastError() => _errMsg(_handle).toDartString();
 
-  void execute(String sql, [List<String> params = const []]) {
+  void execute(String sql, [List<Object?> params = const []]) {
     if (_closed) throw StateError('DB fechado');
     // Sem parâmetros: caminho rápido via sqlite3_exec.
     if (params.isEmpty) {
@@ -135,7 +149,7 @@ class SqliteDb {
   /// Executa query com parâmetros textuais posicionais e retorna linhas reais
   /// indexadas por nome de coluna.
   List<Map<String, Object?>> query(String sql,
-      [List<String> params = const []]) {
+      [List<Object?> params = const []]) {
     if (_closed) throw StateError('DB fechado');
     return using((Arena arena) {
       final stmtPtr = arena<Pointer<Void>>();
@@ -145,10 +159,21 @@ class SqliteDb {
       final stmt = stmtPtr.value;
       try {
         for (var i = 0; i < params.length; i++) {
-          final text = params[i].toNativeUtf8(allocator: arena);
-          // nBytes em UTF-8 e SQLITE_TRANSIENT (-1): o SQLite copia o texto,
-          // então o buffer da arena pode morrer ao fim do `using`.
-          final b = _bindText(stmt, i + 1, text, -1, nullptr);
+          final value = params[i];
+          final int b;
+          if (value == null) {
+            b = _bindNull(stmt, i + 1);
+          } else if (value is bool) {
+            b = _bindInt64(stmt, i + 1, value ? 1 : 0);
+          } else if (value is int) {
+            b = _bindInt64(stmt, i + 1, value);
+          } else if (value is double) {
+            b = _bindDouble(stmt, i + 1, value);
+          } else {
+            final text = value.toString().toNativeUtf8(allocator: arena);
+            // A arena permanece viva até o statement ser executado abaixo.
+            b = _bindText(stmt, i + 1, text, -1, nullptr);
+          }
           if (b != _sqliteOk) {
             throw SqliteException(b, _lastError());
           }
@@ -158,7 +183,9 @@ class SqliteDb {
         // ser lido uma única vez antes do loop de steps (a string pertence ao
         // statement e vive até finalize). Ler por step era o que deixava o
         // mapa vazio em queries sem linhas (ex.: COUNT sobre tabela vazia).
-        final names = [for (var c = 0; c < cols; c++) _colName(stmt, c).toDartString()];
+        final names = [
+          for (var c = 0; c < cols; c++) _colName(stmt, c).toDartString()
+        ];
         final rows = <Map<String, Object?>>[];
         while (true) {
           final s = _step(stmt);
@@ -196,7 +223,8 @@ class SqliteNative {
       if (Platform.isWindows) ...[
         'sqlite3.dll',
         'SQLite3.dll',
-        'e_sqlite3.dll'
+        'e_sqlite3.dll',
+        'winsqlite3.dll',
       ],
       if (Platform.isMacOS) ...[
         '/usr/lib/libsqlite3.dylib',
@@ -251,7 +279,8 @@ class SqliteNative {
       final rc =
           openV2(path.toNativeUtf8(allocator: arena), pp, 1 | 16, nullptr);
       if (rc != _sqliteOk) {
-        throw SqliteException(rc, 'Falha ao abrir DB "$path" em readonly (rc=$rc)');
+        throw SqliteException(
+            rc, 'Falha ao abrir DB "$path" em readonly (rc=$rc)');
       }
       return SqliteDb._(lib, pp.value);
     });
@@ -278,8 +307,7 @@ class ChatRepository {
         db.execute(m);
       } catch (e) {
         try {
-          db.query(
-              'SELECT pinned, tags, folder, archived_at, deleted_at'
+          db.query('SELECT pinned, tags, folder, archived_at, deleted_at'
               ' FROM conversations LIMIT 0');
         } catch (_) {
           throw e;
@@ -439,8 +467,8 @@ class ChatRepository {
   void updateMessageBlocks(String id,
       {required String blocksJson, String? status}) {
     if (status == null) {
-      db.execute("UPDATE messages SET blocks_json=? WHERE id=?",
-          [blocksJson, id]);
+      db.execute(
+          "UPDATE messages SET blocks_json=? WHERE id=?", [blocksJson, id]);
     } else {
       db.execute("UPDATE messages SET blocks_json=?, status=? WHERE id=?",
           [blocksJson, status, id]);

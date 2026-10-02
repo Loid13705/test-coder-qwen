@@ -133,7 +133,10 @@ class EditorSession {
 
   List<EditorTab> get groupTabs => groupPath == null
       ? tabs
-      : [for (final t in tabs) if (t.workspaceRoot == groupPath) t];
+      : [
+          for (final t in tabs)
+            if (t.workspaceRoot == groupPath) t
+        ];
 
   bool get hasDirty => tabs.any((t) => t.isDirty);
 
@@ -344,16 +347,10 @@ class EditorNotifier extends Notifier<EditorSession> {
   static String _decode(List<int> bytes) {
     // BOM UTF-16LE/BE detectado de verdade; senão UTF-8 com fallback latin-1.
     if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
-      return utf16.decode(bytes.sublist(2));
+      return _decodeUtf16(bytes.sublist(2), littleEndian: true);
     }
     if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
-      final units = bytes.sublist(2);
-      final swapped = Uint8List(units.length);
-      for (var i = 0; i + 1 < units.length; i += 2) {
-        swapped[i] = units[i + 1];
-        swapped[i + 1] = units[i];
-      }
-      return utf16.decode(swapped);
+      return _decodeUtf16(bytes.sublist(2), littleEndian: false);
     }
     var text = utf8.decode(bytes, allowMalformed: true);
     if (text.runes.contains(0xFFFD)) {
@@ -363,6 +360,19 @@ class EditorNotifier extends Notifier<EditorSession> {
     return text;
   }
 
+  static String _decodeUtf16(List<int> bytes, {required bool littleEndian}) {
+    if (bytes.length.isOdd) {
+      throw const FormatException('UTF-16 data has an incomplete code unit');
+    }
+    final codeUnits = <int>[];
+    for (var i = 0; i < bytes.length; i += 2) {
+      codeUnits.add(littleEndian
+          ? bytes[i] | bytes[i + 1] << 8
+          : bytes[i] << 8 | bytes[i + 1]);
+    }
+    return String.fromCharCodes(codeUnits);
+  }
+
   Future<void> openFile(String rawPath, {bool forcePin = false}) async {
     final app = ref.read(vtAppProvider);
     final ctx = _ctx();
@@ -370,8 +380,8 @@ class EditorNotifier extends Notifier<EditorSession> {
     try {
       resolved = await app.sandbox.resolveReadable(rawPath, ctx);
     } on VtFailure catch (f) {
-      state = state.copyWith(
-          errors: {...state.errors, rawPath: EditorError(f.message)});
+      state = state
+          .copyWith(errors: {...state.errors, rawPath: EditorError(f.message)});
       return;
     }
     final existing = _firstWhereOrNull(state.tabs, (t) => t.path == resolved);
@@ -408,8 +418,7 @@ class EditorNotifier extends Notifier<EditorSession> {
         _schedulePersist();
         return;
       }
-      final bytes =
-          stat.size <= head.length ? head : await file.readAsBytes();
+      final bytes = stat.size <= head.length ? head : await file.readAsBytes();
       var text = _decode(bytes);
       final detectedEol = text.contains('\r\n') ? 'crlf' : 'lf';
       text = text.replaceAll('\r\n', '\n'); // buffer canônico LF
@@ -427,8 +436,7 @@ class EditorNotifier extends Notifier<EditorSession> {
       // Preview slot: uma única preview tab ativa — clique em outro arquivo
       // substitui apenas previews LIMPAS (suja permanece até pin/save/close).
       if (!forcePin) {
-        tabs.removeWhere(
-            (t) => t.preview && !t.isDirty && t.path != resolved);
+        tabs.removeWhere((t) => t.preview && !t.isDirty && t.path != resolved);
       }
       tabs.add(tab);
       state = state.copyWith(
@@ -440,8 +448,8 @@ class EditorNotifier extends Notifier<EditorSession> {
       state = state.copyWith(
           errors: {...state.errors, resolved: EditorError(f.message)});
     } catch (e) {
-      state = state.copyWith(
-          errors: {...state.errors, resolved: EditorError('$e')});
+      state = state
+          .copyWith(errors: {...state.errors, resolved: EditorError('$e')});
     }
   }
 
@@ -461,10 +469,38 @@ class EditorNotifier extends Notifier<EditorSession> {
   static bool _extIsImage(String p) {
     final lower = p.toLowerCase();
     for (final ext in const [
-      '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.ttf',
-      '.otf', '.woff', '.woff2', '.zip', '.gz', '.tar', '.pdf', '.exe',
-      '.dll', '.so', '.dylib', '.db', '.sqlite', '.a', '.o', '.class',
-      '.jar', '.war', '.mp3', '.mp4', '.mov', '.avi', '.wav', '.flac',
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.gif',
+      '.webp',
+      '.bmp',
+      '.ico',
+      '.ttf',
+      '.otf',
+      '.woff',
+      '.woff2',
+      '.zip',
+      '.gz',
+      '.tar',
+      '.pdf',
+      '.exe',
+      '.dll',
+      '.so',
+      '.dylib',
+      '.db',
+      '.sqlite',
+      '.a',
+      '.o',
+      '.class',
+      '.jar',
+      '.war',
+      '.mp3',
+      '.mp4',
+      '.mov',
+      '.avi',
+      '.wav',
+      '.flac',
     ]) {
       if (lower.endsWith(ext)) return true;
     }
@@ -549,12 +585,12 @@ class EditorNotifier extends Notifier<EditorSession> {
       _schedulePersist();
       return true;
     } on VtFailure catch (f) {
-      state = state.copyWith(
-          errors: {...state.errors, path: EditorError(f.message)});
+      state = state
+          .copyWith(errors: {...state.errors, path: EditorError(f.message)});
       return false;
     } catch (e) {
-      state = state.copyWith(
-          errors: {...state.errors, path: EditorError('$e')});
+      state =
+          state.copyWith(errors: {...state.errors, path: EditorError('$e')});
       return false;
     }
   }

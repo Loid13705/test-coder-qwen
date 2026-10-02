@@ -211,8 +211,7 @@ class LocalLlamaRuntime {
     final manifests = Directory(_expandHome('~/.ollama/models/manifests'));
     if (manifests.existsSync()) {
       try {
-        for (final f
-            in manifests.listSync(recursive: true).whereType<File>()) {
+        for (final f in manifests.listSync(recursive: true).whereType<File>()) {
           // estrutura real: manifests/<registry>/<user>/<name>/<tag>
           final parts = f.absolute.path.split(Platform.pathSeparator);
           if (parts.length < 2) continue;
@@ -222,8 +221,7 @@ class LocalLlamaRuntime {
           try {
             // soma os blobs referenciados no manifest (tamanho real em disco)
             final content = f.readAsStringSync();
-            for (final m in RegExp(
-                    r'"digest"\s*:\s*"sha256:([0-9a-f]+)"')
+            for (final m in RegExp(r'"digest"\s*:\s*"sha256:([0-9a-f]+)"')
                 .allMatches(content)) {
               final blob = File('${_expandHome("~/.ollama/models/blobs")}'
                   '/sha256-${m.group(1)}');
@@ -287,10 +285,14 @@ class LocalLlamaRuntime {
     }
     final actualPort = port != 0 ? port : await _findFreePort();
     final argv = [
-      '--model', model.absolute.path,
-      '--host', '127.0.0.1',
-      '--port', '$actualPort',
-      '--ctx-size', '$contextTokens',
+      '--model',
+      model.absolute.path,
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '$actualPort',
+      '--ctx-size',
+      '$contextTokens',
     ];
     final proc = await Process.start(exe, argv,
         environment: {...Platform.environment, ...env},
@@ -317,8 +319,8 @@ class LocalLlamaRuntime {
           );
         }
         try {
-          final req = await client.getUrl(
-              Uri.parse('http://127.0.0.1:$actualPort/health'));
+          final req = await client
+              .getUrl(Uri.parse('http://127.0.0.1:$actualPort/health'));
           final resp = await req.close().timeout(const Duration(seconds: 2));
           if (resp.statusCode == 200) healthy = true;
           await resp.drain<void>();
@@ -405,7 +407,7 @@ class LocalLlamaRuntime {
 /// true se o processo já terminou (probe de 150ms no exit — não bloqueia).
 Future<bool> _procExited(Process proc) async {
   try {
-    await proc.exit.timeout(const Duration(milliseconds: 150));
+    await proc.exitCode.timeout(const Duration(milliseconds: 150));
     return true;
   } on TimeoutException {
     return false;

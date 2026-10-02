@@ -90,8 +90,8 @@ class EditorDiagnosticsTool extends _EditorTool {
         },
       };
 
-  static final _lineRe = RegExp(
-      r'^([A-Z][A-Z_]*)\|[A-Z ]*\|([^|]*)\|(\d+)\|(\d+)\|(\d+)\|(.*)$');
+  static final _lineRe =
+      RegExp(r'^([A-Z][A-Z_]*)\|[A-Z ]*\|([^|]*)\|(\d+)\|(\d+)\|(\d+)\|(.*)$');
 
   @override
   Future<ToolResult<TextOutput>> execute(
@@ -104,11 +104,10 @@ class EditorDiagnosticsTool extends _EditorTool {
     try {
       final target = await ctx.sandbox.resolveReadable(input.str('path'), ctx);
       final root = projectRoot(ctx, target);
-      final relative = relativeTo(root, target);
+      final relative = _EditorTool.relativeTo(root, target);
       ProcessResult res;
       try {
-        res = await Process.run(
-                dart, ['analyze', '--format=machine', relative],
+        res = await Process.run(dart, ['analyze', '--format=machine', relative],
                 workingDirectory: root)
             .timeout(timeout);
       } on ProcessException catch (e) {
@@ -182,7 +181,7 @@ class EditorFormatTool extends _EditorTool {
     try {
       final target = await ctx.sandbox.resolveReadable(input.str('path'), ctx);
       final root = projectRoot(ctx, target);
-      final relative = relativeTo(root, target);
+      final relative = _EditorTool.relativeTo(root, target);
       ProcessResult res;
       try {
         res = await Process.run(dart, ['format', '-o', 'show', relative],
@@ -205,7 +204,8 @@ class EditorFormatTool extends _EditorTool {
       final out = res.stdout as String;
       // `-o show` imprime o conteúdo formatado (com header "Formatted ..."
       // em algumas versões): remove o header se presente.
-      final body = out.replaceFirst(RegExp(r'^Formatted \d+ files?[^\n]*\n'), '');
+      final body =
+          out.replaceFirst(RegExp(r'^Formatted \d+ files?[^\n]*\n'), '');
       if (body.trim().isEmpty) {
         // fallback honesto: dart format já escreveu no arquivo; relê o real.
         final formatted = await File(target).readAsString();
@@ -274,7 +274,11 @@ class EditorSnippetsTool extends _EditorTool {
   static List<Map<String, Object?>> _builtinByLang(String lang) {
     if (lang != 'dart') return const [];
     return const [
-      {'prefix': 'main', 'body': ['void main() {', '  ', '}'], 'source': 'builtin'},
+      {
+        'prefix': 'main',
+        'body': ['void main() {', '  ', '}'],
+        'source': 'builtin'
+      },
       {
         'prefix': 'test',
         'body': ["test('', () async {", '  ', '});'],

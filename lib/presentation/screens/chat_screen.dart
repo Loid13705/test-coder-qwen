@@ -5,6 +5,8 @@
 /// que efetivamente chegou do provider e erros são VtFailure reais.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -79,8 +81,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             },
             child: _RunBanner(
               live: live,
-              maxIterations:
-                  ref.read(chatServiceProvider).maxToolIterations,
+              maxIterations: ref.read(chatServiceProvider).maxToolIterations,
               child: convId == null
                   ? const _EmptyChat()
                   : _Timeline(convId: convId, scroll: _scroll, live: live),
@@ -140,9 +141,12 @@ class _RunBanner extends StatelessWidget {
                     child: CircularProgressIndicator(
                         strokeWidth: 1.5, color: vt.accent))
               else
-                Icon(live.runStatus == RunStatus.failed
-                    ? Icons.error_outline
-                    : Icons.info_outline, size: 12, color: vt.riskMedium),
+                Icon(
+                    live.runStatus == RunStatus.failed
+                        ? Icons.error_outline
+                        : Icons.info_outline,
+                    size: 12,
+                    color: vt.riskMedium),
               const SizedBox(width: 8),
               Text(label, style: Theme.of(context).textTheme.labelSmall),
             ],
@@ -166,8 +170,10 @@ class _EmptyChat extends StatelessWidget {
         children: [
           Icon(Icons.forum_outlined, size: 40, color: theme.hintColor),
           const SizedBox(height: 10),
-          Text('Nenhuma conversa em foco.\nEnvie uma mensagem ou crie uma conversa.',
-              textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
+          Text(
+              'Nenhuma conversa em foco.\nEnvie uma mensagem ou crie uma conversa.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium),
         ],
       ),
     );
@@ -290,7 +296,8 @@ class _MessageBubble extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color:
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: body,
@@ -405,8 +412,7 @@ class _LiveToolCallCard extends StatelessWidget {
     // válido (indentado) — nunca esconde o que chegou nem inventa closing.
     final prettyArgs = () {
       try {
-        return const JsonEncoder.withIndent('  ')
-            .convert(jsonDecode(call.argsJson));
+        return JsonEncoder.withIndent('  ').convert(jsonDecode(call.argsJson));
       } catch (_) {
         return call.argsJson;
       }
@@ -438,8 +444,8 @@ class _LiveToolCallCard extends StatelessWidget {
               Flexible(
                 child: Text(call.toolId,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontFamily: 'monospace', fontSize: 12)),
+                    style:
+                        const TextStyle(fontFamily: 'monospace', fontSize: 12)),
               ),
               if (durationMs != null) ...[
                 const SizedBox(width: 8),
@@ -459,9 +465,7 @@ class _LiveToolCallCard extends StatelessWidget {
             SelectableText(
               prettyArgs,
               maxLines: 6,
-              overflow: TextOverflow.ellipsis,
-              style:
-                  const TextStyle(fontFamily: 'monospace', fontSize: 10.5),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 10.5),
             ),
           ],
           if (hasResult) ...[
@@ -471,7 +475,6 @@ class _LiveToolCallCard extends StatelessWidget {
             SelectableText(
               resultText!,
               maxLines: 12,
-              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 10.5),
             ),
           ],
@@ -516,8 +519,7 @@ class _ComposerState extends ConsumerState<_Composer> {
         setupUri: 'techvt://settings/providers',
         recoveryActions: const [
           RecoveryAction(
-              kind: 'configure_provider',
-              label: 'Abrir Ajustes → Providers'),
+              kind: 'configure_provider', label: 'Abrir Ajustes → Providers'),
         ],
       ));
       return;
@@ -525,8 +527,9 @@ class _ComposerState extends ConsumerState<_Composer> {
 
     var convId = ref.read(currentConversationIdProvider);
     try {
-      convId ??= ref.read(conversationListProvider.notifier).create(
-          text.length > 40 ? '${text.substring(0, 40)}…' : text);
+      convId ??= ref
+          .read(conversationListProvider.notifier)
+          .create(text.length > 40 ? '${text.substring(0, 40)}…' : text);
     } on VtFailure catch (f) {
       _showError(f);
       return;
@@ -561,8 +564,7 @@ class _ComposerState extends ConsumerState<_Composer> {
     } on VtFailure catch (f) {
       _showError(f);
     } catch (e) {
-      _showError(VtFailure(
-          code: VtErrorCode.internalError, message: '$e'));
+      _showError(VtFailure(code: VtErrorCode.internalError, message: '$e'));
     }
     // `posture` documenta a intenção do modo; a política por tool continua
     // sendo do contrato (evaluateApproval) — nada aqui ignora aprovação.
@@ -586,8 +588,9 @@ class _ComposerState extends ConsumerState<_Composer> {
     final vt = VtTheme.of(context);
     final theme = Theme.of(context);
     final stateAsync = ref.watch(focusedConversationStateProvider);
-    final busy =
-        (stateAsync.valueOrNull ?? const ConversationState(runStatus: RunStatus.idle)).isBusy;
+    final busy = (stateAsync.valueOrNull ??
+            const ConversationState(runStatus: RunStatus.idle))
+        .isBusy;
     final models = ref.watch(vtAppProvider).chat.providers.all;
     final modelIds = [for (final p in models) ...p.models.map((m) => m.id)];
     final selected = ref.watch(selectedModelProvider);
@@ -615,9 +618,11 @@ class _ComposerState extends ConsumerState<_Composer> {
                         style: const TextStyle(fontSize: 12)),
                     items: [
                       for (final id in modelIds)
-                        DropdownMenuItem(value: id, child: Text(id,
-                            style: const TextStyle(
-                                fontFamily: 'monospace', fontSize: 12))),
+                        DropdownMenuItem(
+                            value: id,
+                            child: Text(id,
+                                style: const TextStyle(
+                                    fontFamily: 'monospace', fontSize: 12))),
                     ],
                     onChanged: (v) =>
                         ref.read(selectedModelProvider.notifier).state = v,
@@ -630,7 +635,8 @@ class _ComposerState extends ConsumerState<_Composer> {
                     : 'Tools desabilitadas: resposta só de texto',
                 child: IconButton(
                   iconSize: 18,
-                  onPressed: () => setState(() => _toolsEnabled = !_toolsEnabled),
+                  onPressed: () =>
+                      setState(() => _toolsEnabled = !_toolsEnabled),
                   icon: Icon(
                     _toolsEnabled ? Icons.build : Icons.build_circle_outlined,
                     color: _toolsEnabled ? vt.accent : vt.riskMedium,
@@ -659,8 +665,8 @@ class _ComposerState extends ConsumerState<_Composer> {
               const SizedBox(width: 8),
               if (busy)
                 FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                      backgroundColor: vt.riskCritical),
+                  style:
+                      FilledButton.styleFrom(backgroundColor: vt.riskCritical),
                   onPressed: () {
                     final convId = ref.read(currentConversationIdProvider);
                     if (convId != null) {

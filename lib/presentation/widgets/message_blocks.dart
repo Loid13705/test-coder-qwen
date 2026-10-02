@@ -360,18 +360,28 @@ class TerminalCard extends StatelessWidget {
 
 /// Status/ícone/label canônicos de um tool call — fonte única para o card
 /// persistido e para o card ao-vivo do streaming (mesma linguagem visual).
-(String, Color, String) toolCallVisual(
+(IconData, Color, String) toolCallVisual(
     BuildContext context, ToolCallStatus? status, bool known) {
   final theme = Theme.of(context);
   final vt = VtTheme.of(context);
-  if (!known) return (Icons.help_outline, theme.hintColor, 'status desconhecido');
+  if (!known)
+    return (Icons.help_outline, theme.hintColor, 'status desconhecido');
   return switch (status ?? ToolCallStatus.pending) {
-    ToolCallStatus.pending =>
-      (Icons.hourglass_empty, theme.hintColor, 'aguardando aprovação'),
-    ToolCallStatus.approved =>
-      (Icons.check_circle_outline, vt.riskLow, 'aprovada'),
-    ToolCallStatus.executing =>
-      (Icons.play_circle_outline, vt.accent, 'executando…'),
+    ToolCallStatus.pending => (
+        Icons.hourglass_empty,
+        theme.hintColor,
+        'aguardando aprovação'
+      ),
+    ToolCallStatus.approved => (
+        Icons.check_circle_outline,
+        vt.riskLow,
+        'aprovada'
+      ),
+    ToolCallStatus.executing => (
+        Icons.play_circle_outline,
+        vt.accent,
+        'executando…'
+      ),
     ToolCallStatus.succeeded => (Icons.task_alt, vt.riskLow, 'concluída'),
     ToolCallStatus.failed => (Icons.error_outline, vt.riskCritical, 'falhou'),
     ToolCallStatus.blocked => (Icons.block, vt.riskHigh, 'bloqueada'),
@@ -404,7 +414,8 @@ String _prettyResult(Object? resultText) {
   }
 }
 
-String _fmtMs(int ms) => ms < 1000 ? '$ms ms' : '${(ms / 1000).toStringAsFixed(1)} s';
+String _fmtMs(int ms) =>
+    ms < 1000 ? '$ms ms' : '${(ms / 1000).toStringAsFixed(1)} s';
 
 /// Card de tool call persistido (bloco `tool_call` do ChatService).
 ///
@@ -473,8 +484,8 @@ class ToolCallCard extends StatelessWidget {
             Flexible(
               child: Text(toolId,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 12)),
+                  style:
+                      const TextStyle(fontFamily: 'monospace', fontSize: 12)),
             ),
             const SizedBox(width: 8),
             Text(known ? label : 'status desconhecido ($statusWire)',
@@ -509,7 +520,8 @@ class ToolCallCard extends StatelessWidget {
                   child: SelectableText(
                     prettyArgs,
                     maxLines: 12,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                    style:
+                        const TextStyle(fontFamily: 'monospace', fontSize: 11),
                   ),
                 ),
                 if (hasResult) ...[
@@ -517,8 +529,7 @@ class ToolCallCard extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 6, bottom: 2),
                     child: Text(
                       done ? 'resultado (real)' : 'resultado parcial',
-                      style: theme.textTheme.labelSmall
-                          ?.copyWith(color: color),
+                      style: theme.textTheme.labelSmall?.copyWith(color: color),
                     ),
                   ),
                   Align(
@@ -534,7 +545,6 @@ class ToolCallCard extends StatelessWidget {
                       child: SelectableText(
                         _prettyResult(resultText),
                         maxLines: 20,
-                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             fontFamily: 'monospace', fontSize: 11),
                       ),
@@ -644,10 +654,8 @@ class _TrailChip extends StatelessWidget {
       Icon(icon, size: 12, color: color),
       const SizedBox(width: 3),
       Text(label,
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(color: color)),
+          style:
+              Theme.of(context).textTheme.labelSmall?.copyWith(color: color)),
     ]);
   }
 }
@@ -662,8 +670,8 @@ class ErrorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final vt = VtTheme.of(context);
-    final code =
-        VtErrorCode.fromWire(failureJson['code'] as String? ?? 'internal_error');
+    final code = VtErrorCode.fromWire(
+        failureJson['code'] as String? ?? 'internal_error');
     final message = failureJson['message'] as String? ?? '';
     final actions = ((failureJson['recoveryActions'] as List?) ?? const [])
         .whereType<Map<Object?, Object?>>()
