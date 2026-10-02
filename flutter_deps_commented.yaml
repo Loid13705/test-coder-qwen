@@ -1,7 +1,7 @@
 # Dependências Flutter (ativar ao buildar com o Flutter SDK — ver README).
 # Copie as entradas relevantes para pubspec.yaml na seção dependencies/
 # flutter: assets quando for compilar o app desktop (target primário:
-# Windows, macOS, Linux).
+# Windows, macOS, Linux; Windows é a plataforma prioritária).
 #
 # dependencies:
 #   flutter:
@@ -11,7 +11,6 @@
 #   freezed_annotation: ^2.4.4    # modelos imutáveis
 #   json_annotation: ^4.9.0       # serialização (audit log, approvals, checkpoints)
 #   drift: ^2.20.0                # banco local (histórico, índices, logs, memórias)
-#   sqlite3_flutter_libs: ^0.5.24
 #   flutter_secure_storage: ^9.2.2  # API keys no keychain do SO
 #   path_provider: ^2.1.4           # caminhos de dados locais
 #   file_picker: ^8.0.0             # seleção real de pastas/arquivos

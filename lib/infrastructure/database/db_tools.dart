@@ -48,10 +48,11 @@ Future<ToolResult<O>> _guard<O extends ToolOutput>(
   } on SqliteUnavailableError {
     return ToolFailureResult<O>(VtFailure(
       code: VtErrorCode.binaryMissing,
-      message: 'libsqlite3 ausente no sistema — instale-a ou habilite o '
-          'plugin sqlite3_flutter_libs no build.',
+      message: 'Biblioteca SQLite nativa ausente. No Windows, '
+          'winsqlite3.dll requer Windows 10 versão 1903 ou posterior.',
       recoveryActions: const [
-        RecoveryAction(kind: 'install_binary', label: 'Instalar libsqlite3'),
+        RecoveryAction(
+            kind: 'install_binary', label: 'Instalar biblioteca SQLite nativa'),
       ],
     ));
   } on SqliteException catch (e) {

@@ -79,8 +79,8 @@ class SqliteUnavailableError implements Exception {
   const SqliteUnavailableError();
   @override
   String toString() =>
-      'libsqlite3 não encontrada no sistema — instale a biblioteca ou habilite '
-      'o plugin sqlite3_flutter_libs no build Flutter (estado real: missing_binary).';
+      'SQLite nativo não encontrado — no Windows, winsqlite3.dll requer '
+      'Windows 10 versão 1903 ou posterior (estado real: missing_binary).';
 }
 
 class SqliteDb {
@@ -223,7 +223,8 @@ class SqliteNative {
       if (Platform.isWindows) ...[
         'sqlite3.dll',
         'SQLite3.dll',
-        'e_sqlite3.dll'
+        'e_sqlite3.dll',
+        'winsqlite3.dll',
       ],
       if (Platform.isMacOS) ...[
         '/usr/lib/libsqlite3.dylib',
