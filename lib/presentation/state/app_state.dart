@@ -178,6 +178,25 @@ final selectedModelProvider = StateProvider<String?>((ref) {
   return v is String && v.isNotEmpty ? v : null;
 });
 
+/// Postura de aprovação global do composer (settings `approvalPosture`).
+/// Persistida em settings.json; o executor a recebe via chatService.
+final composerApprovalProvider =
+    StateProvider<ComposerApprovalChoice?>((ref) {
+  final v = ref.watch(settingsProvider).get('approvalPosture');
+  if (v is String && v.isNotEmpty) {
+    for (final c in ComposerApprovalChoice.values) {
+      if (c.name == v) return c;
+    }
+  }
+  return null; // null = política pura do contrato de cada tool
+});
+
+/// Modo do composer (settings `composerMode`): build | plan | ask.
+final composerModeProvider = StateProvider<String?>((ref) {
+  final v = ref.watch(settingsProvider).get('composerMode');
+  return v is String && v.isNotEmpty ? v : null;
+});
+
 // ============================================================================
 // Workspaces reais (settings.recentWorkspaces + raízes da sessão)
 // ============================================================================
@@ -518,6 +537,21 @@ class SettingsWriter {
 
 final settingsWriterProvider = Provider<SettingsWriter>(
     (ref) => SettingsWriter(ref.watch(vtAppProvider).dataDir));
+
+/// Grava/remove uma chave de topo em settings.json de forma centralizada
+/// (usado por todas as cards de Ajustes — evita duplicar o boilerplate).
+Future<void> persistSetting(WidgetRef ref, String key, Object? value) async {
+  await ref.read(settingsWriterProvider).update((cur) {
+    final next = Map<String, Object?>.of(cur);
+    if (value == null) {
+      next.remove(key);
+    } else {
+      next[key] = value;
+    }
+    return next;
+  });
+  ref.invalidate(settingsProvider);
+}
 
 // ============================================================================
 // Diagnostics (health checks REAIS)

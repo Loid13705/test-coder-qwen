@@ -32,6 +32,15 @@ CREATE TABLE IF NOT EXISTS tool_audit (
 CREATE INDEX IF NOT EXISTS idx_tool_audit_conv ON tool_audit(conversation_id, ts);
 ''';
 
+/// Migração aditiva real: coluna de custo USD estimado por execução de tool.
+/// Tabelas antigas ganham a coluna; nada é destruído.
+const kToolAuditCostMigration =
+    'ALTER TABLE tool_audit ADD COLUMN cost_usd REAL';
+
+/// Timeout global default por passo quando `stepTimeoutSeconds` não está
+/// configurado — igual ao contrato histórico do executor (nenhum limite).
+const kDefaultStepTimeout = Duration(minutes: 5);
+
 enum ToolCallOutcomeKind { succeeded, failed, blocked }
 
 class ToolCallOutcome {
@@ -44,6 +53,7 @@ class ToolCallOutcome {
     required this.attempts,
     this.auditId,
     this.failure,
+    this.costUsd,
   });
   final String callId;
   final String toolId;
@@ -56,6 +66,10 @@ class ToolCallOutcome {
   final String? auditId;
   final VtFailure? failure;
 
+  /// Custo USD estimado desta execução de tool (rate table da provider se
+  /// houver; null quando a tool não reporta custo real).
+  final double? costUsd;
+
   bool get ok => kind == ToolCallOutcomeKind.succeeded;
 }
 
@@ -65,14 +79,50 @@ class ToolExecutor {
     required this.context,
     required this.db,
     this.approvalGateway,
+    this.settings,
+    this.postureResolver,
+    this.stepTimeout = kDefaultStepTimeout,
+    this.costEstimator,
   }) {
     db.execute(kToolAuditSchema);
+    // Migração aditiva idempotente: bancos antigos ganham cost_usd; em
+    // bancos novos o ALTER falha ("duplicate column") e é ignorado de
+    // propósito — nunca dropamos nada.
+    try {
+      db.execute(kToolAuditCostMigration);
+    } catch (_) {/* coluna já existe */}
   }
 
   final ToolRegistry registry;
   final ToolContext context;
   final SqliteDb db;
   final ApprovalGateway? approvalGateway;
+
+  /// Settings reais (limites por passo / timeout global via settings.json).
+  final SettingsGateway? settings;
+
+  /// Postura de aprovação do composer resolvida POR EXECUÇÃO (não congelada
+  /// no boot): manual | autoSafe | autoAll | null = política do contrato.
+  final ComposerApprovalChoice? Function()? postureResolver;
+
+  /// Timeout default por passo; `stepTimeoutSeconds` em settings.json tem
+  /// precedência sobre este valor quando configurado.
+  Duration stepTimeout;
+
+  /// Estimativa de custo USD por execução de tool (preço real quando a
+  /// provider conhece o modelo; null = sem custo conhecido, nunca chutado).
+  final double? Function(VtTool<ToolInput, ToolOutput> tool,
+      ToolCallOutcomeKind kind, int durationMs)? costEstimator;
+
+  /// Timeout efetivo de um passo: settings `stepTimeoutSeconds` > campo.
+  Duration effectiveStepTimeout() {
+    final s = settings?.get('stepTimeoutSeconds');
+    final secs = s is num
+        ? s.toInt()
+        : (s is String ? int.tryParse(s.trim()) : null);
+    if (secs != null && secs >= 1) return Duration(seconds: secs);
+    return stepTimeout;
+  }
 
   /// Executa um tool call acumulado do stream. Nunca lança para erro de
   /// domínio: tudo vira [ToolCallOutcome] tipado + registro de auditoria.
@@ -169,12 +219,15 @@ class ToolExecutor {
       );
     }
 
-    // Aprovação conforme política default da tool.
+    // Aprovação conforme política default da tool + postura global do
+    // composer (resolvida AGORA, por execução — mudar em Ajustes/composer
+    // vale para o próximo tool call sem reiniciar nada).
     final blocked = await evaluateApproval(
       tool: tool,
       input: input,
       gateway: approvalGateway,
       conversationId: conversationId,
+      posture: postureResolver?.call(),
     );
     if (blocked != null) {
       return _audit(
@@ -215,12 +268,19 @@ class ToolExecutor {
     final maxAttempts = tool.retryPolicy.maxAttempts < 1
         ? 1
         : (tool.isIdempotent ? tool.retryPolicy.maxAttempts : 1);
+    // Timeout efetivo do passo: o menor entre o timeout declarado pela tool
+    // e o limite global `stepTimeoutSeconds` de settings.json — assim o
+    // limite configurado em Ajustes é aplicado DE VERDADE, sem quebrar
+    // tools que já pedem timeout menor.
+    final stepTo = effectiveStepTimeout();
+    final attemptTimeout =
+        tool.timeout < stepTo ? tool.timeout : stepTo;
     VtFailure? lastFailure;
     String? lastText;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       var failed = false;
       try {
-        final res = await tool.execute(context, parsed).timeout(tool.timeout);
+        final res = await tool.execute(context, parsed).timeout(attemptTimeout);
         switch (res) {
           case ToolSuccess(:final data):
             return _audit(
