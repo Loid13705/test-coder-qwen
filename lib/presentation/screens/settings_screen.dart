@@ -11,8 +11,117 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/app_bootstrap.dart';
 import '../../application/approval.dart';
 import '../../application/chat_service.dart';
+import '../../domain/errors/vt_failure.dart';
+import '../../infrastructure/provider/provider_contract.dart';
 import '../state/app_state.dart';
 import '../theme/vt_theme.dart';
+
+/// Estado medido por um health check REAL (HTTP ao endpoint do provider).
+class _ProviderHealth {
+  const _ProviderHealth._(
+      {this.status, this.error, required this.checkedAtMs, this.latencyMs});
+
+  factory _ProviderHealth.pending() =>
+      const _ProviderHealth._(checkedAtMs: 0);
+
+  final ProviderStatus? status;
+  final String? error;
+
+  /// Epoch ms em que a checagem terminou. Sentinelas: 0 = nunca executada,
+  /// -1 = checagem em andamento (in-flight).
+  final int checkedAtMs;
+
+  /// Latência medida da requisição de health, quando houve tentativa real.
+  final int? latencyMs;
+
+  bool get isChecking => checkedAtMs == -1;
+  bool get hasResult => checkedAtMs > 0 && (status != null || error != null);
+}
+
+/// Health check sob demanda dos providers configurados — usa o MESMO
+/// `healthCheck()` real do contrato (GET models + credencial), nunca um
+/// estado simulado. Chaves ficam em [providerHealthMapProvider]; a lista
+/// ordenada em [providerHealthListProvider] é derivada dela para a UI.
+final providerHealthMapProvider =
+    StateNotifierProvider<ProviderHealthNotifier, Map<String, _ProviderHealth>>(
+        (ref) => ProviderHealthNotifier(ref));
+
+class ProviderHealthNotifier extends StateNotifier<Map<String, _ProviderHealth>> {
+  ProviderHealthNotifier(this._ref) : super(const {}) {
+    _syncKeys();
+  }
+
+  final Ref _ref;
+
+  void _syncKeys() {
+    final ids = _ref.read(chatServiceProvider).providers.all.map((p) => p.id);
+    state = {for (final id in ids) id: state[id] ?? _ProviderHealth.pending()};
+  }
+
+  /// Dispara uma checagem REAL e independente por provider.
+  void checkAll() {
+    _syncKeys();
+    for (final p in _ref.read(chatServiceProvider).providers.all) {
+      _checkOne(p.id);
+    }
+  }
+
+  Future<void> checkOne(String id) async => _checkOne(id);
+
+  Future<void> _checkOne(String id) async {
+    final now = DateTime.now();
+    // marca como "em verificação" (checkedAtMs < 0 é sentinela de in-flight)
+    state = {
+      ...state,
+      id: const _ProviderHealth._(checkedAtMs: -1),
+    };
+    try {
+      final p = _ref.read(chatServiceProvider).providers.byId(id);
+      if (p == null) {
+        state = {
+          ...state,
+          id: _ProviderHealth._(
+              error: 'provider não registrado nesta sessão',
+              checkedAtMs: now.millisecondsSinceEpoch),
+        };
+        return;
+      }
+      final st = await p.healthCheck();
+      state = {
+        ...state,
+        id: _ProviderHealth._(
+          status: st,
+          checkedAtMs: DateTime.now().millisecondsSinceEpoch,
+          latencyMs: DateTime.now().difference(now).inMilliseconds,
+        ),
+      };
+    } on VtFailure catch (f) {
+      state = {
+        ...state,
+        id: _ProviderHealth._(
+            error: '${f.code.wire}: ${f.message}',
+            checkedAtMs: DateTime.now().millisecondsSinceEpoch,
+            latencyMs: DateTime.now().difference(now).inMilliseconds),
+      };
+    } catch (e) {
+      state = {
+        ...state,
+        id: _ProviderHealth._(
+            error: e.toString(),
+            checkedAtMs: DateTime.now().millisecondsSinceEpoch),
+      };
+    }
+  }
+}
+
+final providerHealthListProvider = Provider<List<({String id, _ProviderHealth h})>>((ref) {
+  ref.watch(providerHealthMapProvider);
+  final map = ref.read(providerHealthMapProvider);
+  final providers = ref.watch(chatServiceProvider).providers.all;
+  return [
+    for (final p in providers) (id: p.id, h: map[p.id] ?? _ProviderHealth.pending())
+  ];
+});
 
 /// Modos do composer — os mesmos ids persistidos em settings.json
 /// (`composerMode`) e gravados nas mensagens.
@@ -178,9 +287,39 @@ class _ProvidersCardState extends ConsumerState<_ProvidersCard> {
     final vt = VtTheme.of(context);
     final specs = ref.watch(settingsProvider).providers;
     final secretIds = ref.watch(_secretIdsProvider).valueOrNull ?? const [];
+    // mapa REAL de health medido sob demanda (vazio até a primeira checagem)
+    final health = ref.watch(providerHealthMapProvider);
+    final anyChecking = health.values.any((h) => h.isChecking);
 
     return Column(
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Saúde da conexão do chat com os providers',
+                  style: theme.textTheme.labelMedium,
+                ),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: anyChecking || specs.isEmpty
+                    ? null
+                    : () => ref
+                        .read(providerHealthMapProvider.notifier)
+                        .checkAll(),
+                icon: anyChecking
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.monitor_heart_outlined, size: 16),
+                label: Text(anyChecking ? 'Verificando…' : 'Verificar conexão'),
+              ),
+            ],
+          ),
+        ),
         if (specs.isEmpty)
           Padding(
             padding: const EdgeInsets.all(14),
@@ -206,11 +345,14 @@ class _ProvidersCardState extends ConsumerState<_ProvidersCard> {
                     'modelos: ${s.modelIds.isEmpty ? '(nenhum listado)' : s.modelIds.join(', ')}'
                     '${s.anthropicNative ? ' • wire Anthropic nativo' : ''}',
                     style: theme.textTheme.labelSmall),
+                if (health[s.id]?.hasResult ?? false)
+                  _HealthDetail(h: health[s.id]!),
               ],
             ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                _HealthBadge(h: health[s.id]),
                 Tooltip(
                   message: secretIds.contains(s.id)
                       ? 'chave definida (não exibida)'
@@ -259,6 +401,112 @@ final _secretIdsProvider = FutureProvider.autoDispose<List<String>>((ref) async 
   if (store == null) return const [];
   return store.ids();
 });
+
+({IconData icon, String label, Color color}) _healthVisual(
+    ProviderStatus s, VtColors vt) {
+  switch (s) {
+    case ProviderStatus.ok:
+      return (icon: Icons.check_circle_outline, label: 'online', color: vt.riskLow);
+    case ProviderStatus.rateLimited:
+      return (
+        icon: Icons.hourglass_empty,
+        label: 'rate limited',
+        color: vt.riskMedium
+      );
+    case ProviderStatus.offline:
+      return (
+        icon: Icons.cloud_off,
+        label: 'offline',
+        color: vt.riskMedium
+      );
+    case ProviderStatus.unconfigured:
+      return (
+        icon: Icons.settings_ethernet,
+        label: 'não configurado',
+        color: vt.riskHigh
+      );
+    case ProviderStatus.error:
+      return (
+        icon: Icons.error_outline,
+        label: 'erro',
+        color: vt.riskCritical
+      );
+  }
+}
+
+/// Selo de saúde por provider: só mostra estado medido; sem checagem feita,
+/// um botão dispara a verificação real — nunca há status presumido.
+class _HealthBadge extends StatelessWidget {
+  const _HealthBadge({this.h});
+  final _ProviderHealth? h;
+
+  @override
+  Widget build(BuildContext context) {
+    final vt = VtTheme.of(context);
+    final health = h;
+    if (health == null || health.checkedAtMs == 0) {
+      return IconButton(
+        visualDensity: VisualDensity.compact,
+        tooltip: 'Verificar conexão deste provider (health check real)',
+        icon: const Icon(Icons.wifi_tethering_off, size: 15),
+        onPressed: () =>
+            ProviderScope.containerOf(context)
+                .read(providerHealthMapProvider.notifier)
+                .checkAll(),
+      );
+    }
+    if (health.isChecking) {
+      return const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    final (icon, label, color) = health.status != null
+        ? _healthVisual(health.status!, VtTheme.of(context))
+        : (Icons.help_outline, 'falhou', vt.riskCritical);
+    return Tooltip(
+      message: '$label • ${_checkedAgo(health.checkedAtMs)}'
+          '${health.latencyMs != null ? ' • ${health.latencyMs}ms' : ''}'
+          '${health.error != null ? '\n${health.error}' : ''}',
+      child: Icon(icon, size: 16, color: color),
+    );
+  }
+}
+
+/// Linha de detalhe do último resultado REAL de health check.
+class _HealthDetail extends StatelessWidget {
+  const _HealthDetail({required this.h});
+  final _ProviderHealth h;
+
+  @override
+  Widget build(BuildContext context) {
+    final vt = VtTheme.of(context);
+    final (icon, label, color) = h.status != null
+        ? _healthVisual(h.status!, vt)
+        : (Icons.help_outline, 'falhou', vt.riskCritical);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Text(
+        'conexão: $label'
+        '${h.latencyMs != null ? ' • ${h.latencyMs}ms' : ''}'
+        ' • verificado ${_checkedAgo(h.checkedAtMs)}'
+        '${h.error != null ? ' • ${h.error}' : ''}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 10.5, color: color),
+      ),
+    );
+  }
+}
+
+String _checkedAgo(int epochMs) {
+  final dt = DateTime.fromMillisecondsSinceEpoch(epochMs);
+  final s = DateTime.now().difference(dt).inSeconds;
+  if (s < 5) return 'agora';
+  if (s < 60) return 'há ${s}s';
+  if (s < 3600) return 'há ${s ~/ 60}min';
+  return 'há ${s ~/ 3600}h';
+}
 
 class _ProviderDialog extends StatefulWidget {
   const _ProviderDialog({this.existing});
