@@ -12,6 +12,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import '../domain/net_access.dart';
 import '../domain/tools/tool_contract.dart';
 import '../infrastructure/agent/agent_state_store.dart';
 import '../infrastructure/agent/agent_tools.dart';
@@ -32,6 +33,7 @@ import '../infrastructure/web/web_tools.dart';
 import '../infrastructure/provider/anthropic_provider.dart';
 import '../infrastructure/provider/openai_compatible_provider.dart';
 import '../infrastructure/provider/provider_contract.dart';
+import '../infrastructure/runtime/local_llama_runtime.dart';
 import '../infrastructure/sandbox/sandbox.dart';
 import 'approval.dart';
 import 'chat_service.dart';
@@ -66,22 +68,77 @@ class ProviderFileSpec {
     this.wire = OpenAiCompatWire.chatCompletions,
     this.modelIds = const [],
     this.anthropicNative = false,
+    this.timeoutSeconds,
+    this.proxyUrl,
+    this.proxyDirect = false,
+    this.sslVerification = true,
+    this.organization,
+    this.headers = const {},
+    this.retryMaxAttempts,
+    this.retryBackoffMs,
+    this.fallbackChain = const [],
+    this.capabilityOverrides = const {},
+    this.generation = const GenerationDefaults(),
   });
 
-  factory ProviderFileSpec.fromJson(Map<String, Object?> j) =>
-      ProviderFileSpec(
-        id: j['id'] as String,
-        displayName: (j['displayName'] as String?) ?? (j['id'] as String),
-        baseUrl: j['baseUrl'] as String,
-        wire: OpenAiCompatWire.values.firstWhere(
-          (w) => w.name == j['wire'],
-          orElse: () => OpenAiCompatWire.chatCompletions,
-        ),
-        modelIds: ((j['modelIds'] as List?) ?? const [])
+  factory ProviderFileSpec.fromJson(Map<String, Object?> j) {
+    final caps = <String, CapabilityOverride>{};
+    final rawCaps = j['capabilityOverrides'];
+    if (rawCaps is Map) {
+      rawCaps.cast<String, Object?>().forEach((modelId, v) {
+        if (v is! Map) return;
+        final m = v.cast<String, Object?>();
+        caps[modelId] = CapabilityOverride(
+          tools: m['tools'] as bool?,
+          vision: m['vision'] as bool?,
+          streaming: m['streaming'] as bool?,
+          jsonMode: m['jsonMode'] as bool?,
+          contextWindow: (m['contextWindow'] as num?)?.toInt(),
+        );
+      });
+    }
+    final hdrs = <String, String>{};
+    final rawHdrs = j['headers'];
+    if (rawHdrs is Map) {
+      rawHdrs.forEach((k, v) => hdrs[k.toString()] = v.toString());
+    }
+    final genRaw = j['generation'];
+    final gen = genRaw is Map ? genRaw.cast<String, Object?>() : null;
+    return ProviderFileSpec(
+      id: j['id'] as String,
+      displayName: (j['displayName'] as String?) ?? (j['id'] as String),
+      baseUrl: j['baseUrl'] as String,
+      wire: OpenAiCompatWire.values.firstWhere(
+        (w) => w.name == j['wire'],
+        orElse: () => OpenAiCompatWire.chatCompletions,
+      ),
+      modelIds: ((j['modelIds'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      anthropicNative: (j['anthropicNative'] as bool?) ?? false,
+      timeoutSeconds: (j['timeoutSeconds'] as num?)?.toInt(),
+      proxyUrl: (j['proxyUrl'] as String?)?.trim(),
+      proxyDirect: (j['proxyDirect'] as bool?) ?? false,
+      sslVerification: (j['sslVerification'] as bool?) ?? true,
+      organization: (j['organization'] as String?)?.trim(),
+      headers: hdrs,
+      retryMaxAttempts: (j['retryMaxAttempts'] as num?)?.toInt(),
+      retryBackoffMs: (j['retryBackoffMs'] as num?)?.toInt(),
+      fallbackChain: ((j['fallbackChain'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      capabilityOverrides: caps,
+      generation: GenerationDefaults(
+        temperature: (gen?['temperature'] as num?)?.toDouble(),
+        topP: (gen?['topP'] as num?)?.toDouble(),
+        maxTokens: (gen?['maxTokens'] as num?)?.toInt(),
+        seed: (gen?['seed'] as num?)?.toInt(),
+        stopSequences: ((gen?['stopSequences'] as List?) ?? const [])
             .map((e) => e.toString())
             .toList(),
-        anthropicNative: (j['anthropicNative'] as bool?) ?? false,
-      );
+      ),
+    );
+  }
 
   final String id;
   final String displayName;
@@ -93,6 +150,23 @@ class ProviderFileSpec {
   /// Anthropic (usa [AnthropicProvider]) em vez do formato OpenAI-compat.
   final bool anthropicNative;
 
+  // --- campos avançados (§SETTINGS AI Providers) -------------------------
+  final int? timeoutSeconds;
+  final String? proxyUrl;
+  final bool proxyDirect;
+  final bool sslVerification;
+  final String? organization;
+  final Map<String, String> headers;
+  final int? retryMaxAttempts;
+  final int? retryBackoffMs;
+
+  /// ids de providers alternativos tentados quando este falha por motivo
+  /// transitório (rate limit/timeout/offline). Persistido; aplicado pelo
+  /// ChatService antes de declarar bloqueio.
+  final List<String> fallbackChain;
+  final Map<String, CapabilityOverride> capabilityOverrides;
+  final GenerationDefaults generation;
+
   Map<String, Object?> toJson() => {
         'id': id,
         'displayName': displayName,
@@ -100,7 +174,65 @@ class ProviderFileSpec {
         'wire': wire.name,
         'modelIds': modelIds,
         if (anthropicNative) 'anthropicNative': true,
+        if (timeoutSeconds != null) 'timeoutSeconds': timeoutSeconds,
+        if (proxyUrl != null && proxyUrl!.isNotEmpty) 'proxyUrl': proxyUrl,
+        if (proxyDirect) 'proxyDirect': true,
+        if (!sslVerification) 'sslVerification': false,
+        if (organization != null && organization!.isNotEmpty)
+          'organization': organization,
+        if (headers.isNotEmpty) 'headers': headers,
+        if (retryMaxAttempts != null) 'retryMaxAttempts': retryMaxAttempts,
+        if (retryBackoffMs != null) 'retryBackoffMs': retryBackoffMs,
+        if (fallbackChain.isNotEmpty) 'fallbackChain': fallbackChain,
+        if (capabilityOverrides.isNotEmpty)
+          'capabilityOverrides': {
+            for (final e in capabilityOverrides.entries)
+              e.key: {
+                if (e.value.tools != null) 'tools': e.value.tools,
+                if (e.value.vision != null) 'vision': e.value.vision,
+                if (e.value.streaming != null) 'streaming': e.value.streaming,
+                if (e.value.jsonMode != null) 'jsonMode': e.value.jsonMode,
+                if (e.value.contextWindow != null)
+                  'contextWindow': e.value.contextWindow,
+              },
+          },
+        if (!generation.isEmpty)
+          'generation': {
+            if (generation.temperature != null)
+              'temperature': generation.temperature,
+            if (generation.topP != null) 'topP': generation.topP,
+            if (generation.maxTokens != null)
+              'maxTokens': generation.maxTokens,
+            if (generation.seed != null) 'seed': generation.seed,
+            if (generation.stopSequences.isNotEmpty)
+              'stopSequences': generation.stopSequences,
+          },
       };
+}
+
+/// Defaults de geração persistidos por provider (aplicados quando o request
+/// não traz valor explícito — nunca inventados pelo app).
+class GenerationDefaults {
+  const GenerationDefaults({
+    this.temperature,
+    this.topP,
+    this.maxTokens,
+    this.seed,
+    this.stopSequences = const [],
+  });
+
+  final double? temperature;
+  final double? topP;
+  final int? maxTokens;
+  final int? seed;
+  final List<String> stopSequences;
+
+  bool get isEmpty =>
+      temperature == null &&
+      topP == null &&
+      maxTokens == null &&
+      seed == null &&
+      stopSequences.isEmpty;
 }
 
 /// Settings reais persistidos em `<dataDir>/settings.json` (JSON em disco,
@@ -178,6 +310,40 @@ class FileSettings implements SettingsGateway {
   int? get maxToolSteps => _intAt('maxToolSteps');
   double? get maxCostUsd => _doubleAt('maxCostUsd');
   int? get stepTimeoutSeconds => _intAt('stepTimeoutSeconds');
+
+  /// Toggle global de internet (`internetEnabled`). Ausente = ligado.
+  bool get internetEnabled {
+    final v = get('internetEnabled');
+    return v is! bool || v;
+  }
+
+  /// Page size persistido por superfície (§PAGINAÇÃO GLOBAL). Chaves:
+  /// `pagination.chatPageSize` (50), `pagination.searchPageSize` (50),
+  /// `pagination.logsPageSize` (100), `pagination.toolCatalogPageSize` (30),
+  /// `pagination.gitLogPageSize` (50). Valores fora de kVtPageSizes são
+  /// ignorados (retorna o default da superfície, nunca um número inválido).
+  int pageSizeFor(String key, int fallbackDefault) {
+    final v = _intAt(key);
+    if (v == null) return fallbackDefault;
+    return kVtPageSizes.contains(v) ? v : fallbackDefault;
+  }
+
+  int get chatPageSize =>
+      pageSizeFor('pagination.chatPageSize', kDefaultPageSizeChat);
+  int get searchPageSize =>
+      pageSizeFor('pagination.searchPageSize', kDefaultPageSizeSearch);
+  int get logsPageSize =>
+      pageSizeFor('pagination.logsPageSize', kDefaultPageSizeLogs);
+  int get toolCatalogPageSize => pageSizeFor(
+      'pagination.toolCatalogPageSize', kDefaultPageSizeToolCatalog);
+  int get gitLogPageSize =>
+      pageSizeFor('pagination.gitLogPageSize', kDefaultPageSizeGitLog);
+
+  /// Infinite scroll on/off (default: ligado, como na spec de UX).
+  bool get infiniteScrollEnabled {
+    final v = get('infiniteScroll');
+    return v is! bool || v;
+  }
 
   /// Postura de aprovação global persistida (`approvalPosture`). Retorna o
   /// nome normalizado ('manual' | 'autoSafe' | 'autoAll') ou null quando a
