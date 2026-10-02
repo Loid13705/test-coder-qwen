@@ -73,16 +73,56 @@ void main() {
   group('contrato de registro', () {
     test('10 tools pedidas existem com risco/política corretos', () {
       final expected = <String, (ToolCategory, RiskLevel, ApprovalPolicyMode)>{
-        'pub.get': (ToolCategory.pub, RiskLevel.networkRead, ApprovalPolicyMode.auto),
-        'pub.add': (ToolCategory.pub, RiskLevel.localWrite, ApprovalPolicyMode.reviewEach),
-        'pub.outdated': (ToolCategory.pub, RiskLevel.networkRead, ApprovalPolicyMode.auto),
-        'flutter.doctor': (ToolCategory.flutter, RiskLevel.readOnly, ApprovalPolicyMode.auto),
-        'flutter.run': (ToolCategory.flutter, RiskLevel.execute, ApprovalPolicyMode.reviewEach),
-        'flutter.build_apk': (ToolCategory.flutter, RiskLevel.localWrite, ApprovalPolicyMode.reviewEach),
-        'flutter.build_web': (ToolCategory.flutter, RiskLevel.localWrite, ApprovalPolicyMode.reviewEach),
-        'flutter.test': (ToolCategory.flutter, RiskLevel.execute, ApprovalPolicyMode.auto),
-        'ci.pipeline_trigger': (ToolCategory.ci, RiskLevel.externalWrite, ApprovalPolicyMode.explicitApproval),
-        'release.create': (ToolCategory.release, RiskLevel.externalWrite, ApprovalPolicyMode.explicitApproval),
+        'pub.get': (
+          ToolCategory.pub,
+          RiskLevel.networkRead,
+          ApprovalPolicyMode.auto
+        ),
+        'pub.add': (
+          ToolCategory.pub,
+          RiskLevel.localWrite,
+          ApprovalPolicyMode.reviewEach
+        ),
+        'pub.outdated': (
+          ToolCategory.pub,
+          RiskLevel.networkRead,
+          ApprovalPolicyMode.auto
+        ),
+        'flutter.doctor': (
+          ToolCategory.flutter,
+          RiskLevel.readOnly,
+          ApprovalPolicyMode.auto
+        ),
+        'flutter.run': (
+          ToolCategory.flutter,
+          RiskLevel.execute,
+          ApprovalPolicyMode.reviewEach
+        ),
+        'flutter.build_apk': (
+          ToolCategory.flutter,
+          RiskLevel.localWrite,
+          ApprovalPolicyMode.reviewEach
+        ),
+        'flutter.build_web': (
+          ToolCategory.flutter,
+          RiskLevel.localWrite,
+          ApprovalPolicyMode.reviewEach
+        ),
+        'flutter.test': (
+          ToolCategory.test,
+          RiskLevel.execute,
+          ApprovalPolicyMode.auto
+        ),
+        'ci.pipeline_trigger': (
+          ToolCategory.ci,
+          RiskLevel.externalWrite,
+          ApprovalPolicyMode.explicitApproval
+        ),
+        'release.create': (
+          ToolCategory.release,
+          RiskLevel.externalWrite,
+          ApprovalPolicyMode.explicitApproval
+        ),
       };
       final all = _allDevTools();
       for (final t in all) {
@@ -120,11 +160,12 @@ void main() {
 
     test('pub.get sem dart acessível → falha real (nunca simulada)', () async {
       final tool = PubGetTool();
-      if (await findBinaryInPath('dart') != null) return; // host tem dart: coberto no grupo de execução
+      if (await findBinaryInPath('dart') != null)
+        return; // host tem dart: coberto no grupo de execução
       final res = await tool.execute(_ctx(tmp.path), await tool.parseInput({}));
       expect(res, isA<ToolFailureResult<TextOutput>>());
-      expect(((res as ToolFailureResult).failure.code),
-          VtErrorCode.binaryMissing);
+      expect(
+          ((res as ToolFailureResult).failure.code), VtErrorCode.binaryMissing);
     });
 
     test('flutter.run valida device contra lista REAL antes de iniciar',
@@ -136,8 +177,8 @@ void main() {
       expect(res, isA<ToolFailureResult<TextOutput>>());
       final f = (res as ToolFailureResult<TextOutput>).failure;
       // sem flutter → binary_missing; com flutter → device_not_found. Ambos reais.
-      expect(f.code,
-          anyOf(VtErrorCode.binaryMissing, VtErrorCode.deviceNotFound));
+      expect(
+          f.code, anyOf(VtErrorCode.binaryMissing, VtErrorCode.deviceNotFound));
       if (f.code == VtErrorCode.deviceNotFound) {
         expect(f.message, contains('nao-existe-xyz'));
       }
@@ -148,8 +189,8 @@ void main() {
     test('pub.add rejeita spec de pacote malformada', () async {
       final tool = PubAddTool();
       final ctx = _ctx(tmp.path);
-      final res =
-          await tool.execute(ctx, await tool.parseInput({'package': 'rm -rf /;'}));
+      final res = await tool.execute(
+          ctx, await tool.parseInput({'package': 'rm -rf /;'}));
       expect(res, isA<ToolFailureResult<TextOutput>>());
       expect(((res as ToolFailureResult).failure.code),
           VtErrorCode.validationFailed);
@@ -170,8 +211,8 @@ void main() {
     test('ci.pipeline_trigger exige https e domínio na allowlist', () async {
       final tool = CiPipelineTriggerTool();
       final ctxHttp = _ctx(tmp.path);
-      var res = await tool.execute(
-          ctxHttp, await tool.parseInput({'url': 'http://exemplo.com/dispatch'}));
+      var res = await tool.execute(ctxHttp,
+          await tool.parseInput({'url': 'http://exemplo.com/dispatch'}));
       expect(((res as ToolFailureResult).failure.code),
           VtErrorCode.validationFailed);
       final ctxDeny = ToolContext(
@@ -186,11 +227,9 @@ void main() {
     });
 
     test('validateInput rejeita tipos errados nos schemas novos', () {
-      expect(
-          () => PubAddTool().validateInput({'package': 42}),
+      expect(() => PubAddTool().validateInput({'package': 42}),
           throwsA(isA<VtFailure>()));
-      expect(
-          () => FlutterRunTool().validateInput({'timeoutSeconds': 'muito'}),
+      expect(() => FlutterRunTool().validateInput({'timeoutSeconds': 'muito'}),
           throwsA(isA<VtFailure>()));
       expect(() => ReleaseCreateTool().validateInput({}),
           throwsA(isA<VtFailure>())); // version obrigatória
@@ -204,8 +243,8 @@ void main() {
       if (git == null) return; // host sem git: degradação coberta acima
       final repo = Directory('${tmp.path}/repo')..createSync();
       Process.runSync(git, ['-C', repo.path, 'init', '-b', 'main']);
-      Process.runSync(git,
-          ['-C', repo.path, 'config', 'user.email', 'vt@test.local']);
+      Process.runSync(
+          git, ['-C', repo.path, 'config', 'user.email', 'vt@test.local']);
       Process.runSync(git, ['-C', repo.path, 'config', 'user.name', 'VT Test']);
       File('${repo.path}/a.txt').writeAsStringSync('a\n');
       Process.runSync(git, ['-C', repo.path, 'add', 'a.txt']);
@@ -235,8 +274,8 @@ void main() {
       expect(okRes.artifacts.any((a) => a.kindOf == 'changelog'), isTrue);
 
       // segunda chamada recusa sobrescrever tag existente (real)
-      final again = await tool.execute(
-          ctx, await tool.parseInput({'version': '0.2.0'}));
+      final again =
+          await tool.execute(ctx, await tool.parseInput({'version': '0.2.0'}));
       expect(again, isA<ToolFailureResult<TextOutput>>());
       expect(((again as ToolFailureResult).failure.code),
           VtErrorCode.validationFailed);
@@ -254,7 +293,8 @@ environment:
 ''');
       final tool = PubOutdatedTool();
       final ctx = _ctx(proj.path);
-      final res = await tool.execute(ctx, await tool.parseInput({'json': true}));
+      final res =
+          await tool.execute(ctx, await tool.parseInput({'json': true}));
       // qualquer um dos dois é honesto; o que NÃO pode é sucesso fabricado
       if (res is ToolSuccess<TextOutput>) {
         expect(res.data.metadata['exitCode'], 0);
@@ -277,8 +317,8 @@ environment:
       var started = false;
       final tool = FlutterRunTool(onSessionStarted: (p, d) => started = true);
       final ctx = _ctx(tmp.path);
-      final res = await tool.execute(ctx,
-          await tool.parseInput({'deviceId': id, 'timeoutSeconds': 5}));
+      final res = await tool.execute(
+          ctx, await tool.parseInput({'deviceId': id, 'timeoutSeconds': 5}));
       expect(started, isTrue);
       // sessão terminada por kill real ou exit — metadata honesta
       if (res is ToolSuccess<TextOutput>) {

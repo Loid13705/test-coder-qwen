@@ -638,9 +638,10 @@ class AgentPlanStep {
   final List<String> toolIds;
   final List<String> acceptanceCriteria;
 
-  AgentPlanStep copyWith({PlanStepStatus? status}) => AgentPlanStep(
+  AgentPlanStep copyWith({String? title, PlanStepStatus? status}) =>
+      AgentPlanStep(
         index: index,
-        title: title,
+        title: title ?? this.title,
         status: status ?? this.status,
         dependsOn: dependsOn,
         toolIds: toolIds,

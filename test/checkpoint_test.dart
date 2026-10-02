@@ -91,9 +91,9 @@ void main() {
       if (!SqliteNative.available) return;
       final f = seed('b.txt', 'CONTEUDO-ORIGINAL');
       final rec = await store.create(workspaceRoot: ws.path, absPath: f.path);
-      await store.markAfter(rec.id, absPath: f.path);
       // "write destrutivo" do mundo real:
       f.writeAsStringSync('CORROMPIDO-PELO-AGENT');
+      await store.markAfter(rec.id, absPath: f.path);
 
       final out = await store.restore(rec.id);
       expect(f.readAsStringSync(), 'CONTEUDO-ORIGINAL');
@@ -143,8 +143,7 @@ void main() {
         () async {
       if (!SqliteNative.available) return;
       final path = '${ws.path}/gerado.dart';
-      final rec =
-          await store.create(workspaceRoot: ws.path, absPath: path);
+      final rec = await store.create(workspaceRoot: ws.path, absPath: path);
       File(path).writeAsStringSync('coisa que o agent inventou');
       await store.markAfter(rec.id, absPath: path);
 
@@ -164,8 +163,7 @@ void main() {
       expect((err as VtFailure).code, VtErrorCode.validationFailed);
     });
 
-    test('snapshot perdido em disco => falha honesta, alvo intocado',
-        () async {
+    test('snapshot perdido em disco => falha honesta, alvo intocado', () async {
       if (!SqliteNative.available) return;
       final f = seed('e.txt', 'precioso');
       final rec = await store.create(workspaceRoot: ws.path, absPath: f.path);

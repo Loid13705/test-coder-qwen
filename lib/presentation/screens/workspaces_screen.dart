@@ -3,6 +3,8 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/errors/vt_failure.dart';
@@ -23,7 +25,8 @@ class WorkspacesScreen extends ConsumerWidget {
       children: [
         _ScreenHeader(
           title: 'Workspaces',
-          subtitle: 'Raízes acessíveis ao sandbox. Tools só operam aqui dentro.',
+          subtitle:
+              'Raízes acessíveis ao sandbox. Tools só operam aqui dentro.',
           actions: [
             FilledButton.icon(
               onPressed: () => _showAddDialog(context, ref),
@@ -55,8 +58,7 @@ class WorkspacesScreen extends ConsumerWidget {
                         await ref
                             .read(workspaceListProvider.notifier)
                             .remove(ws.path);
-                        if (ref.read(currentWorkspacePathProvider) ==
-                            ws.path) {
+                        if (ref.read(currentWorkspacePathProvider) == ws.path) {
                           ref
                               .read(currentWorkspacePathProvider.notifier)
                               .state = null;
@@ -71,10 +73,58 @@ class WorkspacesScreen extends ConsumerWidget {
   }
 
   Future<void> _showAddDialog(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController();
     final path = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (_) => const _AddWorkspaceDialog(),
+    );
+    if (path == null || path.isEmpty) return;
+    try {
+      final addedPath =
+          await ref.read(workspaceListProvider.notifier).add(path);
+      ref.read(currentWorkspacePathProvider.notifier).state = addedPath;
+    } on VtFailure catch (f) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${f.code.wire}: ${f.message}'),
+      ));
+    }
+  }
+}
+
+class _AddWorkspaceDialog extends StatefulWidget {
+  const _AddWorkspaceDialog();
+
+  @override
+  State<_AddWorkspaceDialog> createState() => _AddWorkspaceDialogState();
+}
+
+class _AddWorkspaceDialogState extends State<_AddWorkspaceDialog> {
+  final _controller = TextEditingController();
+  String? _pickerError;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickFolder() async {
+    try {
+      final selected = await FilePicker.platform.getDirectoryPath();
+      if (!mounted || selected == null) return;
+      setState(() {
+        _controller.text = selected;
+        _pickerError = null;
+      });
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(
+          () => _pickerError = 'Falha ao escolher a pasta: ${error.message}');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
         title: const Text('Adicionar workspace'),
         content: SizedBox(
           width: 420,
@@ -83,7 +133,7 @@ class WorkspacesScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
-                controller: controller,
+                controller: _controller,
                 autofocus: true,
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
                 decoration: const InputDecoration(
@@ -91,52 +141,33 @@ class WorkspacesScreen extends ConsumerWidget {
                   helperText:
                       'Ex.: /home/usuario/projetos/meu_app ou C:\\\\projetos\\\\meu_app',
                 ),
-                onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+                onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
               ),
               const SizedBox(height: 10),
               TextButton.icon(
                 icon: const Icon(Icons.folder_open, size: 16),
                 label: const Text('Escolher…'),
-                onPressed: () async {
-                  // Sem file_picker neste build: fallback honesto — pede o
-                  // caminho digitado (o botão abre o diálogo de ajuda).
-                  if (!ctx.mounted) return;
-                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                    content: Text(
-                      'Neste build digite o caminho acima. O picker nativo '
-                      'ativa junto com a dependência file_picker (ver '
-                      'flutter_deps_commented.yaml).',
-                    ),
-                  ));
-                },
+                onPressed: _pickFolder,
               ),
+              if (_pickerError != null)
+                Text(
+                  _pickerError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
             ],
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancelar'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.of(ctx).pop(controller.text.trim()),
+            onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
             child: const Text('Adicionar'),
           ),
         ],
-      ),
-    );
-    if (path == null || path.isEmpty) return;
-    try {
-      await ref.read(workspaceListProvider.notifier).add(path);
-      ref.read(currentWorkspacePathProvider.notifier).state = path;
-    } on VtFailure catch (f) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${f.code.wire}: ${f.message}'),
-      ));
-    }
-  }
+      );
 }
 
 class _ScreenHeader extends StatelessWidget {
@@ -210,21 +241,21 @@ class _WorkspaceRow extends StatelessWidget {
                       children: [
                         Flexible(
                           child: Text(info.name,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w600),
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
                               overflow: TextOverflow.ellipsis),
                         ),
                         const SizedBox(width: 8),
                         if (info.isGitRepo)
-                          _Chip(
-                              label: 'git', color: vt.riskLow, dense: true),
+                          _Chip(label: 'git', color: vt.riskLow, dense: true),
                         if (!info.exists)
                           _Chip(
                               label: 'ausente',
                               color: vt.riskCritical,
                               dense: true),
                         if (focused)
-                          _Chip(label: 'em foco', color: vt.accent, dense: true),
+                          _Chip(
+                              label: 'em foco', color: vt.accent, dense: true),
                       ],
                     ),
                     const SizedBox(height: 2),
@@ -255,8 +286,7 @@ class _WorkspaceRow extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip(
-      {required this.label, required this.color, this.dense = false});
+  const _Chip({required this.label, required this.color, this.dense = false});
   final String label;
   final Color color;
   final bool dense;
@@ -288,8 +318,7 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.folder_special_outlined,
-              size: 40, color: theme.hintColor),
+          Icon(Icons.folder_special_outlined, size: 40, color: theme.hintColor),
           const SizedBox(height: 10),
           Text('Nenhum workspace aberto.', style: theme.textTheme.bodyMedium),
           const SizedBox(height: 4),

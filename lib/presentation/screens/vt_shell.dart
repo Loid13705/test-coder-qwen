@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/chat_service.dart';
 import '../../domain/errors/vt_failure.dart';
 import '../../domain/net_access.dart';
 import '../state/app_state.dart';

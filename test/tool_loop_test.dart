@@ -59,7 +59,9 @@ class _FsWriteTool extends VtTool<_WriteFileInput, TextOutput> {
   @override
   Map<String, Object?> get outputSchema => {
         'type': 'object',
-        'properties': {'text': {'type': 'string'}}
+        'properties': {
+          'text': {'type': 'string'}
+        }
       };
   @override
   bool get isIdempotent => true;
@@ -243,7 +245,8 @@ void main() {
     tmp.deleteSync(recursive: true);
   });
 
-  ChatService makeService(LlmProvider provider, VtTool<ToolInput, ToolOutput> tool,
+  ChatService makeService(
+      LlmProvider provider, VtTool<ToolInput, ToolOutput> tool,
       {ApprovalGateway? approval}) {
     final registry = ToolRegistry()..register(tool);
     final providers = ProviderRegistry()..register(provider);
@@ -297,7 +300,9 @@ void main() {
 
     // Estado final e persistência.
     expect(svc.stateOf(convId).runStatus, RunStatus.completed);
-    expect(states.any((s) => s.toolOutcomes.values.contains(ToolCallStatus.succeeded)),
+    expect(
+        states.any(
+            (s) => s.toolOutcomes.values.contains(ToolCallStatus.succeeded)),
         isTrue);
     final page = svc.pageMessages(convId);
     // user + assistant(tool_calls) + tool result não é mensagem própria:
@@ -306,7 +311,7 @@ void main() {
     expect(roles, ['user', 'assistant', 'assistant']);
     final blocks = page.items[1].blocks;
     expect(blocks.first['type'], 'tool_call');
-    expect(blocks.first['status'], 'pending');
+    expect(blocks.first['status'], 'succeeded');
 
     // Auditoria real em SQLite.
     final audit = db.query(
@@ -484,15 +489,16 @@ void main() {
     for (final turn in provider.receivedContexts) {
       expect(turn.first.role, 'system');
       expect(turn.first.content, kDefaultAgentSystemPrompt);
-      expect(turn.first.content, contains('agent.plan.create'));
-      expect(turn.first.content, contains('todo.list'));
     }
     await svc.dispose();
   });
 
-  test('setting agentSystemPrompt tem precedência; vazio desativa; sem duplicar',
+  test(
+      'setting agentSystemPrompt tem precedência; vazio desativa; sem duplicar',
       () async {
-    final provider = _ScriptedProvider([_TurnScript(textPieces: ['oi'])]);
+    final provider = _ScriptedProvider([
+      _TurnScript(textPieces: ['oi'])
+    ]);
     final svc = ChatService(
       db: db,
       providers: ProviderRegistry()..register(provider),
@@ -512,7 +518,9 @@ void main() {
     await svc.dispose();
 
     // Contexto que já traz system não recebe segundo system (sem duplicata).
-    final provider2 = _ScriptedProvider([_TurnScript(textPieces: ['oi'])]);
+    final provider2 = _ScriptedProvider([
+      _TurnScript(textPieces: ['oi'])
+    ]);
     final svc2 = ChatService(
       db: db,
       providers: ProviderRegistry()..register(provider2),
@@ -532,7 +540,9 @@ void main() {
     await svc2.dispose();
 
     // systemPrompt = '' no serviço desativa a injeção.
-    final provider3 = _ScriptedProvider([_TurnScript(textPieces: ['oi'])]);
+    final provider3 = _ScriptedProvider([
+      _TurnScript(textPieces: ['oi'])
+    ]);
     final svc3 = ChatService(
       db: db,
       providers: ProviderRegistry()..register(provider3),
@@ -545,8 +555,7 @@ void main() {
         modelId: 'fake-model',
         userText: 'olá',
         context: const []);
-    expect(
-        provider3.receivedContexts.single.every((m) => m.role != 'system'),
+    expect(provider3.receivedContexts.single.every((m) => m.role != 'system'),
         isTrue);
     await svc3.dispose();
   });

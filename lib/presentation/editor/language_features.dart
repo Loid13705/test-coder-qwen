@@ -13,6 +13,47 @@ library;
 
 import 'dart:convert';
 
+const kTextExtensions = <String>{
+  '.c',
+  '.cc',
+  '.cfg',
+  '.conf',
+  '.cpp',
+  '.cs',
+  '.css',
+  '.csv',
+  '.dart',
+  '.env',
+  '.go',
+  '.h',
+  '.hpp',
+  '.html',
+  '.ini',
+  '.java',
+  '.js',
+  '.json',
+  '.jsx',
+  '.kt',
+  '.lock',
+  '.md',
+  '.php',
+  '.properties',
+  '.py',
+  '.rb',
+  '.rs',
+  '.sh',
+  '.sql',
+  '.svg',
+  '.swift',
+  '.toml',
+  '.ts',
+  '.tsx',
+  '.txt',
+  '.xml',
+  '.yaml',
+  '.yml',
+};
+
 class OutlineEntry {
   const OutlineEntry({
     required this.name,
@@ -21,7 +62,8 @@ class OutlineEntry {
     required this.indent,
   });
   final String name;
-  final String kind; // class|mixin|enum|extension|typedef|function|field|section|heading
+  final String
+      kind; // class|mixin|enum|extension|typedef|function|field|section|heading
   /// Linha zero-based no buffer canônico (LF).
   final int line;
   final int indent;
@@ -90,7 +132,8 @@ String languageForPath(String path) {
 // ------------------------------------------------------------------ outline
 
 final _declarationRes = <RegExp, String>{
-  RegExp(r'^\s*(?:abstract\s+)?(?:sealed\s+)?(?:base\s+)?(?:final\s+)?class\s+([A-Za-z_$][\w$]*)'): 'class',
+  RegExp(r'^\s*(?:abstract\s+)?(?:sealed\s+)?(?:base\s+)?(?:final\s+)?class\s+([A-Za-z_$][\w$]*)'):
+      'class',
   RegExp(r'^\s*mixin\s+([A-Za-z_$][\w$]*)'): 'mixin',
   RegExp(r'^\s*enum\s+([A-Za-z_$][\w$]*)'): 'enum',
   RegExp(r'^\s*typedef\s+([A-Za-z_$][\w$]*)'): 'typedef',
@@ -100,23 +143,24 @@ final _fnRe = RegExp(
     r'^\s*(?:@override\s*)?(?:static\s+|final\s+|const\s+|late\s+)*'
     r'(?:Future<[^<>]*(?:<[^<>]*>)?>\s+|void\s+|String\s+|int\s+|double\s+|bool\s+)?'
     r'([A-Za-z_$][\w$]*)\s*\([^;=]*\)\s*(?:async\s*)?\{\s*$');
-final _fieldRe = RegExp(
-    r'^\s*(?:static\s+|final\s+|late\s+)*(?:[A-Z][\w<>, ?]*\s+)?'
-    r'([a-z_$][\w$]*)\s*[=;]\s*.*$');
+final _fieldRe =
+    RegExp(r'^\s*(?:static\s+|final\s+|late\s+)*(?:[A-Z][\w<>, ?]*\s+)?'
+        r'([a-z_$][\w$]*)\s*[=;]\s*.*$');
 
 final _sectionRe = RegExp(r'^(#{1,6})\s+(.+)$');
 final _commentBannerRe =
     RegExp(r'^\s*/[/*]+\s*=+\s*(.+?)\s*=+\s*[/*]+\s*$|^\s*//\s*-{4,}\s*(.*)');
-final _jsClassRe =
-    RegExp(r'^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)');
-final _jsFnRe = RegExp(r'^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)');
-final _jsArrowRe =
-    RegExp(r'^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?[(\w]+\s*(=>|\()');
+final _jsClassRe = RegExp(
+    r'^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)');
+final _jsFnRe =
+    RegExp(r'^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)');
+final _jsArrowRe = RegExp(
+    r'^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?[(\w]+\s*(=>|\()');
 final _pyDefRe = RegExp(r'^\s*(?:async\s+)?def\s+([A-Za-z_][\w]*)');
 final _pyClassRe = RegExp(r'^\s*class\s+([A-Za-z_][\w]*)');
 final _rustFnRe = RegExp(r'^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][\w]*)');
-final _rustImplRe =
-    RegExp(r'^\s*(?:pub\s+)?(?:unsafe\s+)?impl(?:<[^>]*>)?\s+([A-Za-z_][\w:<>, ]*)');
+final _rustImplRe = RegExp(
+    r'^\s*(?:pub\s+)?(?:unsafe\s+)?impl(?:<[^>]*>)?\s+([A-Za-z_][\w:<>, ]*)');
 final _goFnRe = RegExp(r'^func\s+(?:\([^)]*\)\s+)?([A-Za-z_][\w]*)');
 final _cssRuleRe = RegExp(r'^([.#][A-Za-z_][\w-]*)\s*[,{]');
 
@@ -280,7 +324,13 @@ String? symbolNameAt(List<OutlineEntry> outline, int caretLine) {
 // ------------------------------------------------------------ bracket pairs
 
 const Map<String, String> kBracketPairs = {
-  '(': ')', '[': ']', '{': '}', '"': '"', "'": "'", '`': '`', '<': '>',
+  '(': ')',
+  '[': ']',
+  '{': '}',
+  '"': '"',
+  "'": "'",
+  '`': '`',
+  '<': '>',
 };
 
 (String, String)? bracketPairFor(String ch) {
@@ -338,49 +388,65 @@ class Snippet {
 
 const kSnippets = <Snippet>[
   Snippet('main', ['void main() {', '  \$0', '}'], {'dart'}, 'função main'),
-  Snippet('test', ["test('\${1:name}', () async {", '  \$0', '});'],
-      {'dart'}, 'bloco test()'),
-  Snippet('widget', [
-    'class \${1:MyWidget} extends StatelessWidget {',
-    '  const \${1:MyWidget}({super.key});',
-    '',
-    '  @override',
-    '  Widget build(BuildContext context) {',
-    '    return \$0',
-    '  }',
-    '}',
-  ], {'dart'}, 'StatelessWidget'),
-  Snippet('stful', [
-    'class \${1:MyScreen} extends ConsumerStatefulWidget {',
-    '  const \${1:MyScreen}({super.key});',
-    '',
-    '  @override',
-    '  ConsumerState<\${1:MyScreen}> createState() => _\${1:MyScreenState}();',
-    '}',
-    '',
-    'class _\${1:MyScreenState} extends ConsumerState<\${1:MyScreen}> {',
-    '  @override',
-    '  Widget build(BuildContext context) {',
-    '    return \$0',
-    '  }',
-    '}',
-  ], {'dart'}, 'ConsumerStatefulWidget'),
-  Snippet('prov', [
-    'final \${1:thing}Provider = Provider<\${2:Object}>((ref) {',
-    '  return \$0;',
-    '});',
-  ], {'dart'}, 'Riverpod Provider'),
-  Snippet('notifier', [
-    'class \${1:Thing}Notifier extends Notifier<\${2:State}> {',
-    '  @override',
-    '  \${2:State} build() => \$0;',
-    '}',
-  ], {'dart'}, 'Riverpod Notifier'),
-  Snippet('for', [
-    'for (var \${1:i} = 0; \${1:i} < \${2:n}; \${1:i}++) {',
-    '  \$0',
-    '}'
-  ], {'dart', 'javascript', 'typescript', 'c', 'cpp', 'java', 'go'}, 'loop for'),
+  Snippet('test', ["test('\${1:name}', () async {", '  \$0', '});'], {'dart'},
+      'bloco test()'),
+  Snippet(
+      'widget',
+      [
+        'class \${1:MyWidget} extends StatelessWidget {',
+        '  const \${1:MyWidget}({super.key});',
+        '',
+        '  @override',
+        '  Widget build(BuildContext context) {',
+        '    return \$0',
+        '  }',
+        '}',
+      ],
+      {'dart'},
+      'StatelessWidget'),
+  Snippet(
+      'stful',
+      [
+        'class \${1:MyScreen} extends ConsumerStatefulWidget {',
+        '  const \${1:MyScreen}({super.key});',
+        '',
+        '  @override',
+        '  ConsumerState<\${1:MyScreen}> createState() => _\${1:MyScreenState}();',
+        '}',
+        '',
+        'class _\${1:MyScreenState} extends ConsumerState<\${1:MyScreen}> {',
+        '  @override',
+        '  Widget build(BuildContext context) {',
+        '    return \$0',
+        '  }',
+        '}',
+      ],
+      {'dart'},
+      'ConsumerStatefulWidget'),
+  Snippet(
+      'prov',
+      [
+        'final \${1:thing}Provider = Provider<\${2:Object}>((ref) {',
+        '  return \$0;',
+        '});',
+      ],
+      {'dart'},
+      'Riverpod Provider'),
+  Snippet(
+      'notifier',
+      [
+        'class \${1:Thing}Notifier extends Notifier<\${2:State}> {',
+        '  @override',
+        '  \${2:State} build() => \$0;',
+        '}',
+      ],
+      {'dart'},
+      'Riverpod Notifier'),
+  Snippet(
+      'for',
+      ['for (var \${1:i} = 0; \${1:i} < \${2:n}; \${1:i}++) {', '  \$0', '}'],
+      {'dart', 'javascript', 'typescript', 'c', 'cpp', 'java', 'go'},
+      'loop for'),
   Snippet('if', ['if (\${1:cond}) {', '  \$0', '}'],
       {'dart', 'javascript', 'typescript', 'c', 'cpp', 'java', 'go'}, 'if'),
   Snippet('try', ['try {', '  \$0', '} catch (e) {', '  rethrow;', '}'],
@@ -390,22 +456,28 @@ const kSnippets = <Snippet>[
       {'javascript', 'typescript'}, 'console.log'),
   Snippet('fn', ['\${1:name}(\${2:args}) {', '  \$0', '}'], {'rust'}, 'fn'),
   Snippet('def', ['def \${1:name}(\${2:args}):', '    \$0'], {'python'}, 'def'),
-  Snippet('html5', [
-    '<!DOCTYPE html>',
-    '<html lang="\${1:en}">',
-    '<head>',
-    '  <meta charset="utf-8">',
-    '  <title>\${2:Title}</title>',
-    '</head>',
-    '<body>',
-    '  \$0',
-    '</body>',
-    '</html>',
-  ], {'html'}, 'boilerplate HTML5'),
+  Snippet(
+      'html5',
+      [
+        '<!DOCTYPE html>',
+        '<html lang="\${1:en}">',
+        '<head>',
+        '  <meta charset="utf-8">',
+        '  <title>\${2:Title}</title>',
+        '</head>',
+        '<body>',
+        '  \$0',
+        '</body>',
+        '</html>',
+      ],
+      {'html'},
+      'boilerplate HTML5'),
 ];
 
-List<Snippet> snippetsFor(String language) =>
-    [for (final s in kSnippets) if (s.langs.contains(language)) s];
+List<Snippet> snippetsFor(String language) => [
+      for (final s in kSnippets)
+        if (s.langs.contains(language)) s
+    ];
 
 String snippetWordPrefix(String line, int column) {
   final upto = column <= line.length ? line.substring(0, column) : line;

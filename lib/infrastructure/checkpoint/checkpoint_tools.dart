@@ -50,8 +50,8 @@ abstract class _CheckpointTool extends VtTool<MapToolInput, TextOutput> {
   }
 
   @override
-  Future<ToolHealth> health(ToolContext ctx) async => const HealthOk(
-      'checkpoint store pronto (SQLite + pasta de snapshots)');
+  Future<ToolHealth> health(ToolContext ctx) async =>
+      const HealthOk('checkpoint store pronto (SQLite + pasta de snapshots)');
 
   /// Workspace efetivo para escopo do registro (primeira raiz ou input).
   String workspaceOf(ToolContext ctx, MapToolInput input) {
@@ -106,32 +106,38 @@ class CheckpointCreateTool extends _CheckpointTool {
         'type': 'object',
         'required': ['path'],
         'properties': {
-          'path': {'type': 'string', 'description': 'Arquivo alvo (abs ou relativo à raiz)'},
-          'reason': {'type': 'string', 'description': 'Por que este snapshot existe'},
+          'path': {
+            'type': 'string',
+            'description': 'Arquivo alvo (abs ou relativo à raiz)'
+          },
+          'reason': {
+            'type': 'string',
+            'description': 'Por que este snapshot existe'
+          },
           'workspace': {'type': 'string'},
         },
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(
-      ToolContext ctx, MapToolInput input) => _guard(this, () async {
-    final ws = workspaceOf(ctx, input);
-    final abs = await resolvePath(ctx, input.str('path'), true);
-    final rec = await store.create(
-      workspaceRoot: ws,
-      absPath: abs,
-      reason: input.str('reason'),
-    );
-    return ToolSuccess(
-      data: TextOutput(
-        'Checkpoint ${rec.id}\n'
-        'arquivo: ${rec.relPath}\n'
-        'existia antes: ${rec.existedBefore}\n'
-        'sha256(before): ${rec.sha256Before ?? "(inexistente)"}',
-        metadata: {...rec.toJson(), 'snapshotPath': rec.snapshotPath},
-      ),
-    );
-  });
+  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) =>
+      _guard(this, () async {
+        final ws = workspaceOf(ctx, input);
+        final abs = await resolvePath(ctx, input.str('path'), true);
+        final rec = await store.create(
+          workspaceRoot: ws,
+          absPath: abs,
+          reason: input.str('reason'),
+        );
+        return ToolSuccess(
+          data: TextOutput(
+            'Checkpoint ${rec.id}\n'
+            'arquivo: ${rec.relPath}\n'
+            'existia antes: ${rec.existedBefore}\n'
+            'sha256(before): ${rec.sha256Before ?? "(inexistente)"}',
+            metadata: {...rec.toJson(), 'snapshotPath': rec.snapshotPath},
+          ),
+        );
+      });
 }
 
 // ----------------------------------------------------------- checkpoint.list
@@ -151,6 +157,8 @@ class CheckpointListTool extends _CheckpointTool {
   @override
   ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.auto;
   @override
+  bool get isIdempotent => true;
+  @override
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
         'properties': {
@@ -164,34 +172,38 @@ class CheckpointListTool extends _CheckpointTool {
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(
-      ToolContext ctx, MapToolInput input) => _guard(this, () async {
-    final ws = workspaceOf(ctx, input);
-    final limit = (input.intOrNull('limit') ?? 50).clamp(1, 200);
-    final filterRel = input.str('path').isEmpty
-        ? null
-        : relativePath(normalizeSlashes(await resolvePath(ctx, input.str('path'), false)), ws);
-    final records = store.list(workspaceRoot: ws, limit: limit).where((r) {
-      if (filterRel == null) return true;
-      return normalizeSlashes(r.relPath) == normalizeSlashes(filterRel);
-    }).toList(growable: false);
+  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) =>
+      _guard(this, () async {
+        final ws = workspaceOf(ctx, input);
+        final limit = (input.intOrNull('limit') ?? 50).clamp(1, 200);
+        final filterRel = input.str('path').isEmpty
+            ? null
+            : relativePath(
+                normalizeSlashes(
+                    await resolvePath(ctx, input.str('path'), false)),
+                ws);
+        final records = store.list(workspaceRoot: ws, limit: limit).where((r) {
+          if (filterRel == null) return true;
+          return normalizeSlashes(r.relPath) == normalizeSlashes(filterRel);
+        }).toList(growable: false);
 
-    if (records.isEmpty) {
-      return const ToolSuccess(
-          data: TextOutput('Nenhum checkpoint registrado para este workspace.'));
-    }
-    final lines = records
-        .map((r) => '${r.id}  ${r.createdAt}  ${r.relPath}'
-            '${r.existedBefore ? "" : "  (criado novo)"}'
-            '${r.reason.isEmpty ? "" : "  — ${r.reason}"}')
-        .join('\n');
-    return ToolSuccess(
-      data: TextOutput(lines, metadata: {
-        'count': records.length,
-        'checkpoints': records.map((r) => r.toJson()).toList(),
-      }),
-    );
-  });
+        if (records.isEmpty) {
+          return const ToolSuccess(
+              data: TextOutput(
+                  'Nenhum checkpoint registrado para este workspace.'));
+        }
+        final lines = records
+            .map((r) => '${r.id}  ${r.createdAt}  ${r.relPath}'
+                '${r.existedBefore ? "" : "  (criado novo)"}'
+                '${r.reason.isEmpty ? "" : "  — ${r.reason}"}')
+            .join('\n');
+        return ToolSuccess(
+          data: TextOutput(lines, metadata: {
+            'count': records.length,
+            'checkpoints': records.map((r) => r.toJson()).toList(),
+          }),
+        );
+      });
 }
 
 // -------------------------------------------------------- checkpoint.restore
@@ -219,7 +231,10 @@ class CheckpointRestoreTool extends _CheckpointTool {
         'type': 'object',
         'required': ['id'],
         'properties': {
-          'id': {'type': 'string', 'description': 'id retornado por checkpoint.create/list'},
+          'id': {
+            'type': 'string',
+            'description': 'id retornado por checkpoint.create/list'
+          },
           'force': {
             'type': 'boolean',
             'description':
@@ -229,30 +244,30 @@ class CheckpointRestoreTool extends _CheckpointTool {
       };
 
   @override
-  Future<ToolResult<TextOutput>> execute(
-      ToolContext ctx, MapToolInput input) => _guard(this, () async {
-    final id = input.str('id');
-    if (id.isEmpty) {
-      throw VtFailure(
-        code: VtErrorCode.validationFailed,
-        message: 'Parâmetro "id" é obrigatório.',
-      );
-    }
-    final outcome = await store.restore(id, force: input.boolOf('force'));
-    final msg = outcome.removedFile
-        ? 'Arquivo "${outcome.restored.relPath}" não existia antes do write; '
-            'removido (rollback completo).'
-        : 'Arquivo "${outcome.restored.relPath}" restaurado para o estado '
-            'pré-write (sha256 ${outcome.restored.sha256Before}).';
-    return ToolSuccess(
-      data: TextOutput(
-        '$msg${outcome.wasDrifted ? "\nATENÇÃO: houve drift resolvido com force — edições posteriores foram descartadas." : ""}',
-        metadata: {
-          'checkpoint': outcome.restored.id,
-          'removedFile': outcome.removedFile,
-          'wasDrifted': outcome.wasDrifted,
-        },
-      ),
-    );
-  });
+  Future<ToolResult<TextOutput>> execute(ToolContext ctx, MapToolInput input) =>
+      _guard(this, () async {
+        final id = input.str('id');
+        if (id.isEmpty) {
+          throw VtFailure(
+            code: VtErrorCode.validationFailed,
+            message: 'Parâmetro "id" é obrigatório.',
+          );
+        }
+        final outcome = await store.restore(id, force: input.boolOf('force'));
+        final msg = outcome.removedFile
+            ? 'Arquivo "${outcome.restored.relPath}" não existia antes do write; '
+                'removido (rollback completo).'
+            : 'Arquivo "${outcome.restored.relPath}" restaurado para o estado '
+                'pré-write (sha256 ${outcome.restored.sha256Before}).';
+        return ToolSuccess(
+          data: TextOutput(
+            '$msg${outcome.wasDrifted ? "\nATENÇÃO: houve drift resolvido com force — edições posteriores foram descartadas." : ""}',
+            metadata: {
+              'checkpoint': outcome.restored.id,
+              'removedFile': outcome.removedFile,
+              'wasDrifted': outcome.wasDrifted,
+            },
+          ),
+        );
+      });
 }

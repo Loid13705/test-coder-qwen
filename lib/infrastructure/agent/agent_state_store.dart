@@ -23,6 +23,7 @@ import 'dart:convert';
 
 import '../../domain/errors/vt_failure.dart';
 import '../../domain/models/core_models.dart';
+import '../../domain/state/agent_states.dart';
 import '../native/sqlite_native.dart';
 
 const kAgentStateSchema = '''
@@ -336,7 +337,8 @@ class AgentStateStore {
       rollbackPlan: rollbackPlan ?? current.rollbackPlan,
       createdAt: current.createdAt,
     );
-    final rows = db.query('SELECT revision FROM agent_plans WHERE id=?', [planId]);
+    final rows =
+        db.query('SELECT revision FROM agent_plans WHERE id=?', [planId]);
     final rev = int.parse(rows.first['revision'] as String) + 1;
     db.execute(
       'UPDATE agent_plans SET objective=?, plan_json=?, revision=?, '
@@ -365,8 +367,7 @@ class AgentStateStore {
             'createdAt': r['created_at'],
             'steps': [
               for (final s
-                  in (_decodeMap(r['plan_json'])['steps'] as List? ??
-                      const []))
+                  in (_decodeMap(r['plan_json'])['steps'] as List? ?? const []))
                 {
                   'index': (s as Map)['index'],
                   'title': s['title'],
@@ -622,7 +623,7 @@ class AgentStateStore {
   }
 
   List<Map<String, Object?>> summaries(String conversationId,
-      {int limit = 5}) =>
+          {int limit = 5}) =>
       [
         for (final r in db.query(
           'SELECT id, text, citations, source_count, created_at '
@@ -779,9 +780,9 @@ class AgentStateStore {
             if (conversationId != null) 'conversation_id=?',
             if (status != null) 'status=?',
           ].isEmpty ? '' : ' WHERE ${[
-                if (conversationId != null) 'conversation_id=?',
-                if (status != null) 'status=?',
-              ].join(' AND ')}'}'
+              if (conversationId != null) 'conversation_id=?',
+              if (status != null) 'status=?',
+            ].join(' AND ')}'}'
           ' ORDER BY created_at ASC',
           [
             if (conversationId != null) conversationId,

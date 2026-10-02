@@ -52,7 +52,7 @@ Future<ProcResult> runCaptured(
       proc.stdout.transform(const Utf8Decoder(allowMalformed: true)).join();
   final errF =
       proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).join();
-  final exit = await proc.exit.timeout(limit, onTimeout: () {
+  final exit = await proc.exitCode.timeout(limit, onTimeout: () {
     proc.kill(ProcessSignal.sigterm);
     throw VtFailure(
       code: VtErrorCode.timeout,
@@ -61,8 +61,10 @@ Future<ProcResult> runCaptured(
     );
   });
   // dá tempo aos pipes de drenarem após o exit
-  final out = await outF.timeout(const Duration(seconds: 5), onTimeout: () => '');
-  final err = await errF.timeout(const Duration(seconds: 5), onTimeout: () => '');
+  final out =
+      await outF.timeout(const Duration(seconds: 5), onTimeout: () => '');
+  final err =
+      await errF.timeout(const Duration(seconds: 5), onTimeout: () => '');
   return ProcResult(exit, out, err);
 }
 
@@ -186,7 +188,8 @@ abstract class DevToolBase extends VtTool<MapToolInput, TextOutput> {
   ToolSuccess<TextOutput> ok(ProcResult r,
           {Map<String, Object?> extra = const {}}) =>
       ToolSuccess(
-          data: TextOutput(r.combined, metadata: {'exitCode': r.exitCode, ...extra}));
+          data: TextOutput(r.combined,
+              metadata: {'exitCode': r.exitCode, ...extra}));
 
   VtFailure failure(ProcResult r, VtErrorCode code, String verb) => VtFailure(
         code: code,
@@ -244,7 +247,8 @@ class PubGetTool extends DevToolBase {
       final (res, flavor) =
           await pubCommand(ctx, ['get'], forceFlutter: input.boolOf('flutter'));
       if (res.exitCode != 0) {
-        return ToolFailureResult(failure(res, VtErrorCode.buildFailed, 'pub get'));
+        return ToolFailureResult(
+            failure(res, VtErrorCode.buildFailed, 'pub get'));
       }
       return ok(res, extra: {'flavor': flavor});
     } on VtFailure catch (f) {
@@ -304,7 +308,8 @@ class PubAddTool extends DevToolBase {
       final args = <String>[if (input.boolOf('dev')) '--dev', pkg];
       final (res, flavor) = await pubCommand(ctx, ['add', ...args]);
       if (res.exitCode != 0) {
-        return ToolFailureResult(failure(res, VtErrorCode.buildFailed, 'pub add'));
+        return ToolFailureResult(
+            failure(res, VtErrorCode.buildFailed, 'pub add'));
       }
       return ok(res, extra: {
         'flavor': flavor,
@@ -359,10 +364,12 @@ class PubOutdatedTool extends DevToolBase {
       ToolContext ctx, MapToolInput input) async {
     try {
       final wantJson = input.values['json'] as bool? ?? true;
-      var (res, flavor) = await pubCommand(
-          ctx, ['outdated', if (wantJson) '--output=json']);
+      var (res, flavor) =
+          await pubCommand(ctx, ['outdated', if (wantJson) '--output=json']);
       // flags desconhecidas em pub antigo → degradamos p/ saída textual REAL
-      if (wantJson && res.exitCode != 0 && !res.stdout.trimLeft().startsWith('{')) {
+      if (wantJson &&
+          res.exitCode != 0 &&
+          !res.stdout.trimLeft().startsWith('{')) {
         (res, flavor) = await pubCommand(ctx, ['outdated']);
       }
       if (res.exitCode != 0) {
@@ -505,7 +512,10 @@ class FlutterRunTool extends DevToolBase {
         'properties': {
           'deviceId': {'type': 'string'},
           'target': {'type': 'string', 'description': 'ex.: lib/main.dart'},
-          'dartDefine': {'type': 'array', 'items': {'type': 'string'}},
+          'dartDefine': {
+            'type': 'array',
+            'items': {'type': 'string'}
+          },
           'timeoutSeconds': {
             'type': 'integer',
             'description': 'duração máxima da sessão (default 300s; kill real).'
@@ -531,7 +541,8 @@ class FlutterRunTool extends DevToolBase {
               'disponíveis agora: '
               '${realIds.isEmpty ? 'nenhum' : realIds.join(', ')}',
           recoveryActions: const [
-            RecoveryAction(kind: 'list_devices', label: 'Rodar flutter devices'),
+            RecoveryAction(
+                kind: 'list_devices', label: 'Rodar flutter devices'),
           ],
         ));
       }
@@ -550,20 +561,19 @@ class FlutterRunTool extends DevToolBase {
           proc.stderr.transform(const Utf8Decoder(allowMalformed: true)).join();
       final secs = input.intOrNull('timeoutSeconds') ?? 300;
       var killedByTimeout = false;
-      final exit = await proc.exit
-          .timeout(Duration(seconds: secs), onTimeout: () {
+      final exit =
+          await proc.exitCode.timeout(Duration(seconds: secs), onTimeout: () {
         proc!.kill(ProcessSignal.sigterm);
         killedByTimeout = true;
         return 0;
       });
-      final out = await outF.timeout(const Duration(seconds: 10),
-          onTimeout: () => '');
-      final err = await errF.timeout(const Duration(seconds: 10),
-          onTimeout: () => '');
+      final out =
+          await outF.timeout(const Duration(seconds: 10), onTimeout: () => '');
+      final err =
+          await errF.timeout(const Duration(seconds: 10), onTimeout: () => '');
       final res = ProcResult(exit, out, err);
       if (!killedByTimeout && exit != 0) {
-        return ToolFailureResult(
-            failure(res, VtErrorCode.buildFailed, 'run'));
+        return ToolFailureResult(failure(res, VtErrorCode.buildFailed, 'run'));
       }
       return ok(res, extra: {
         'deviceId': deviceId,
@@ -755,9 +765,14 @@ class FlutterTestTool extends DevToolBase {
         return ToolFailureResult(VtFailure(
           code: VtErrorCode.testFailed,
           message: 'flutter test falhou (exit ${res.exitCode}).',
-          details: {'exitCode': res.exitCode, 'stdout': res.stdout, 'stderr': res.stderr},
+          details: {
+            'exitCode': res.exitCode,
+            'stdout': res.stdout,
+            'stderr': res.stderr
+          },
           recoveryActions: const [
-            RecoveryAction(kind: 'rerun_failed', label: 'Re-rodar apenas os falhos'),
+            RecoveryAction(
+                kind: 'rerun_failed', label: 'Re-rodar apenas os falhos'),
           ],
         ));
       }
@@ -814,7 +829,8 @@ class CiPipelineTriggerTool extends DevToolBase {
           },
           'eventType': {
             'type': 'string',
-            'description': 'event_type do repository_dispatch (default vt-pipeline)'
+            'description':
+                'event_type do repository_dispatch (default vt-pipeline)'
           },
           'branch': {'type': 'string'},
           'payload': {'type': 'object'},
@@ -850,18 +866,21 @@ class CiPipelineTriggerTool extends DevToolBase {
       if (uri.scheme != 'https') {
         return ToolFailureResult(VtFailure(
             code: VtErrorCode.validationFailed,
-            message: 'Trigger de CI exige https (token em trânsito): "$urlStr".'));
+            message:
+                'Trigger de CI exige https (token em trânsito): "$urlStr".'));
       }
       if (!ctx.sandbox.isAllowedDomain(uri.host, ctx)) {
         return ToolFailureResult(VtFailure.domainNotAllowed(uri.host));
       }
-      final tokenKey =
-          input.str('tokenSetting').isEmpty ? 'ci.token' : input.str('tokenSetting');
+      final tokenKey = input.str('tokenSetting').isEmpty
+          ? 'ci.token'
+          : input.str('tokenSetting');
       final token = ctx.settings.get(tokenKey)?.toString() ??
           Platform.environment['VT_CI_TOKEN'] ??
           '';
-      final eventType =
-          input.str('eventType').isEmpty ? 'vt-pipeline' : input.str('eventType');
+      final eventType = input.str('eventType').isEmpty
+          ? 'vt-pipeline'
+          : input.str('eventType');
       final payload = <String, Object?>{
         ...?((input.values['payload'] as Map?)?.cast<String, Object?>()),
         if (input.str('branch').isNotEmpty) 'ref': input.str('branch'),
@@ -958,7 +977,10 @@ class ReleaseCreateTool extends DevToolBase {
         'required': ['version'],
         'properties': {
           'version': {'type': 'string', 'description': 'ex.: 1.4.0 (sem "v")'},
-          'notes': {'type': 'string', 'description': 'notas da release/changelog'},
+          'notes': {
+            'type': 'string',
+            'description': 'notas da release/changelog'
+          },
           'remote': {'type': 'string', 'description': 'default origin'},
           'pushTag': {'type': 'boolean', 'description': 'git push REAL da tag'},
           'githubRepo': {
@@ -1008,14 +1030,16 @@ class ReleaseCreateTool extends DevToolBase {
       // 3) commit do changelog (apenas se houve mudança material)
       final addRes = await _runGit(ctx, ['add', 'CHANGELOG.md']);
       if (addRes.exitCode != 0) {
-        return ToolFailureResult(failure(addRes, VtErrorCode.internalError, 'add'));
+        return ToolFailureResult(
+            failure(addRes, VtErrorCode.internalError, 'add'));
       }
       final stagedDiff = await _runGit(ctx, ['diff', '--cached', '--quiet']);
       if (stagedDiff.exitCode == 1) {
-        final c =
-            await _runGit(ctx, ['commit', '-m', 'chore(release): $tag changelog']);
+        final c = await _runGit(
+            ctx, ['commit', '-m', 'chore(release): $tag changelog']);
         if (c.exitCode != 0) {
-          return ToolFailureResult(failure(c, VtErrorCode.internalError, 'commit'));
+          return ToolFailureResult(
+              failure(c, VtErrorCode.internalError, 'commit'));
         }
       } else if (stagedDiff.exitCode != 0) {
         return ToolFailureResult(
@@ -1025,7 +1049,8 @@ class ReleaseCreateTool extends DevToolBase {
       final tagRes = await _runGit(ctx,
           ['tag', '-a', tag, '-m', notes.isEmpty ? 'Release $tag' : notes]);
       if (tagRes.exitCode != 0) {
-        return ToolFailureResult(failure(tagRes, VtErrorCode.internalError, 'tag'));
+        return ToolFailureResult(
+            failure(tagRes, VtErrorCode.internalError, 'tag'));
       }
       final logLine = await _runGit(ctx, ['rev-parse', tag]);
       final sha = logLine.stdout.trim();
@@ -1035,7 +1060,10 @@ class ReleaseCreateTool extends DevToolBase {
       ];
       final citations = <Citation>[
         if (sha.isNotEmpty)
-          Citation(sourceType: 'commit', sourceRef: sha, label: 'HEAD rotulado $tag'),
+          Citation(
+              sourceType: 'commit',
+              sourceRef: sha,
+              label: 'HEAD rotulado $tag'),
       ];
       // 5) push da tag (opcional — external write real)
       if (input.boolOf('pushTag')) {
@@ -1064,16 +1092,18 @@ class ReleaseCreateTool extends DevToolBase {
         final client = _http();
         try {
           final uri = Uri.parse('https://api.github.com/repos/$repo/releases');
-          final req = await client.openUrl('POST', uri).timeout(const Duration(seconds: 30));
+          final req = await client
+              .openUrl('POST', uri)
+              .timeout(const Duration(seconds: 30));
           req.headers.set('Accept', 'application/vnd.github+json');
           req.headers.set('Authorization', 'Bearer $token');
           req.headers.contentType = ContentType.json;
           req.write(jsonEncode(
               {'tag_name': tag, 'name': 'Release $tag', 'body': notes}));
-          final resp =
-              await req.close().timeout(const Duration(seconds: 30));
-          final body =
-              await resp.transform(const Utf8Decoder(allowMalformed: true)).join();
+          final resp = await req.close().timeout(const Duration(seconds: 30));
+          final body = await resp
+              .transform(const Utf8Decoder(allowMalformed: true))
+              .join();
           if (resp.statusCode >= 300) {
             return ToolFailureResult(VtFailure(
               code: resp.statusCode == 401 || resp.statusCode == 403
@@ -1088,7 +1118,9 @@ class ReleaseCreateTool extends DevToolBase {
           ghNote = 'GitHub release criado: $url';
           if (url.isNotEmpty) {
             citations.add(Citation(
-                sourceType: 'url', sourceRef: url, label: 'GitHub release $tag'));
+                sourceType: 'url',
+                sourceRef: url,
+                label: 'GitHub release $tag'));
           }
         } finally {
           client.close(force: true);

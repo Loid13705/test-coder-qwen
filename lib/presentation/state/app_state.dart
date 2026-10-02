@@ -145,10 +145,17 @@ final secretStoreProvider = StateProvider<FileSecretStore?>((ref) => null);
 // Navegação / seleção
 // ============================================================================
 
-enum UiSection { chat, editor, workspaces, tools, memory, diagnostics, settings }
+enum UiSection {
+  chat,
+  editor,
+  workspaces,
+  tools,
+  memory,
+  diagnostics,
+  settings
+}
 
-final sectionProvider =
-    StateProvider<UiSection>((ref) => UiSection.chat);
+final sectionProvider = StateProvider<UiSection>((ref) => UiSection.chat);
 
 final currentWorkspacePathProvider = StateProvider<String?>((ref) => null);
 
@@ -161,8 +168,10 @@ final themeModeProvider =
 
 enum AgentPostureChoice {
   askFirst('Ask first', 'Executa tools somente após aprovação explícita.'),
-  proposeOnly('Propose only', 'Planeja e propõe mudanças, nunca executa sozinho.'),
-  safeAuto('Safe auto', 'Auto-executa apenas tools read-only; o resto exige aprovação.');
+  proposeOnly(
+      'Propose only', 'Planeja e propõe mudanças, nunca executa sozinho.'),
+  safeAuto('Safe auto',
+      'Auto-executa apenas tools read-only; o resto exige aprovação.');
 
   const AgentPostureChoice(this.label, this.description);
   final String label;
@@ -180,8 +189,7 @@ final selectedModelProvider = StateProvider<String?>((ref) {
 
 /// Postura de aprovação global do composer (settings `approvalPosture`).
 /// Persistida em settings.json; o executor a recebe via chatService.
-final composerApprovalProvider =
-    StateProvider<ComposerApprovalChoice?>((ref) {
+final composerApprovalProvider = StateProvider<ComposerApprovalChoice?>((ref) {
   final v = ref.watch(settingsProvider).get('approvalPosture');
   if (v is String && v.isNotEmpty) {
     for (final c in ComposerApprovalChoice.values) {
@@ -250,30 +258,36 @@ class WorkspaceListNotifier extends Notifier<List<WorkspaceInfo>> {
         path: path, exists: exists, isGitRepo: isGit, lastOpenedAt: modified);
   }
 
-  Future<void> add(String path) async {
+  Future<String> add(String path) async {
     final dir = Directory(path);
     if (!dir.existsSync()) {
       throw VtFailure(
         code: VtErrorCode.validationFailed,
         message: 'Pasta inexistente: $path',
         recoveryActions: const [
-          RecoveryAction(kind: 'pick_folder', label: 'Escolher uma pasta válida')
+          RecoveryAction(
+              kind: 'pick_folder', label: 'Escolher uma pasta válida')
         ],
       );
     }
+    final resolvedPath = await dir.resolveSymbolicLinks();
     final settings = ref.read(settingsProvider);
     final list = [
-      path,
-      ...settings.recentWorkspaces.where((p) => p != path),
+      resolvedPath,
+      ...settings.recentWorkspaces.where((p) => p != resolvedPath),
     ];
     await _persist(list);
+    final app = ref.read(vtAppProvider);
+    app.setWorkspaceRoots({...app.workspaceRoots, resolvedPath});
     state = build();
+    return resolvedPath;
   }
 
   Future<void> remove(String path) async {
     final settings = ref.read(settingsProvider);
-    await _persist(
-        settings.recentWorkspaces.where((p) => p != path).toList());
+    await _persist(settings.recentWorkspaces.where((p) => p != path).toList());
+    final app = ref.read(vtAppProvider);
+    app.setWorkspaceRoots(app.workspaceRoots.where((root) => root != path));
     state = build();
   }
 
@@ -282,6 +296,7 @@ class WorkspaceListNotifier extends Notifier<List<WorkspaceInfo>> {
     final values = await _readRawSettings(app.dataDir);
     values['recentWorkspaces'] = list;
     await FileSettings.save(app.dataDir, values);
+    app.settings.setRecentWorkspaces(list);
     // Re-carrega settings para que a UI reflita o estado real do disco.
     ref.invalidate(settingsProvider);
   }
@@ -320,14 +335,14 @@ final focusedWorkspacePathProvider = Provider<String?>((ref) {
 /// sentinel real [kGlobalConversationWorkspace] no `workspace_id` do SQLite.
 enum ConversationScope { currentWorkspace, global, all }
 
-final conversationScopeProvider =
-    StateProvider<ConversationScope>((ref) => ConversationScope.currentWorkspace);
+final conversationScopeProvider = StateProvider<ConversationScope>(
+    (ref) => ConversationScope.currentWorkspace);
 
 /// Filtro de status da lista (arquivadas/lixeira têm restore dedicado).
 enum ConversationListFilter { active, archived, trash }
 
-final conversationFilterProvider =
-    StateProvider<ConversationFilterHolder>((ref) => const ConversationFilterHolder());
+final conversationFilterProvider = StateProvider<ConversationFilterHolder>(
+    (ref) => const ConversationFilterHolder());
 
 /// Holder imutável para o filtro poder ser carregado dentro do notifier sem
 /// ciclo (StateProvider simples também serviria; este wrapper só dá nome ao
@@ -344,6 +359,7 @@ class ConversationListData {
     required this.scope,
     required this.filter,
   });
+
   /// Linhas reais de `conversations` (id, title, pinned, tags, folder, ...).
   final List<Map<String, Object?>> items;
   final String? workspaceId;
@@ -351,7 +367,8 @@ class ConversationListData {
   final ConversationListFilter filter;
 }
 
-class ConversationListNotifier extends AutoDisposeNotifier<ConversationListData> {
+class ConversationListNotifier
+    extends AutoDisposeNotifier<ConversationListData> {
   @override
   ConversationListData build() {
     final ws = ref.watch(focusedWorkspacePathProvider);
@@ -382,7 +399,10 @@ class ConversationListNotifier extends AutoDisposeNotifier<ConversationListData>
         chat.listDeletedConversations(targetWs, includeAllWs: includeAll),
     };
     return ConversationListData(
-        items: items, workspaceId: targetWs ?? ws, scope: scope, filter: filter);
+        items: items,
+        workspaceId: targetWs ?? ws,
+        scope: scope,
+        filter: filter);
   }
 
   /// Cria conversa REAL no SQLite e a coloca em foco. No escopo Global usa o
@@ -481,8 +501,9 @@ class ConversationListNotifier extends AutoDisposeNotifier<ConversationListData>
   }
 
   Map<String, Object?>? _rowById(String id) {
-    for (final r in ref.read(chatServiceProvider).listConversations(null,
-        includeAllWs: true)) {
+    for (final r in ref
+        .read(chatServiceProvider)
+        .listConversations(null, includeAllWs: true)) {
       if (r['id'] == id) return r;
     }
     return null;

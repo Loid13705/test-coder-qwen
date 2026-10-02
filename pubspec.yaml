@@ -23,6 +23,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_riverpod: ^2.5.1      # estado global (appScope..agentScope)
+  file_picker: ^8.0.0
   crypto: ^3.0.3
   ffi: ^2.1.0
 

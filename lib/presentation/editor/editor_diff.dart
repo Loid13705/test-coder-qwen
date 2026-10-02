@@ -11,8 +11,10 @@ class DiffLine {
   const DiffLine(this.op, this.text, {this.oldLine, this.newLine});
   final DiffOp op;
   final String text;
+
   /// Número da linha no lado original (null para inserts), 1-based.
   final int? oldLine;
+
   /// Número da linha no lado novo (null para deletes), 1-based.
   final int? newLine;
 }
@@ -40,8 +42,7 @@ class DiffResult {
   final List<DiffLine> lines;
   final List<DiffHunk> hunks;
 
-  int get additions =>
-      lines.where((l) => l.op == DiffOp.insert).length;
+  int get additions => lines.where((l) => l.op == DiffOp.insert).length;
   int get deletions => lines.where((l) => l.op == DiffOp.delete).length;
 
   List<DiffHunk> get changedHunks => hunks.where((h) => h.changed).toList();
@@ -54,11 +55,15 @@ class DiffResult {
       if (lo < 0) lo = 0;
       var hi = h.end + context;
       if (hi > lines.length) hi = lines.length;
-      final oldStart = lines.sublist(lo, hi).firstWhere(
-          (l) => l.oldLine != null, orElse: () => lines[lo]).oldLine ??
+      final oldStart = lines
+              .sublist(lo, hi)
+              .firstWhere((l) => l.oldLine != null, orElse: () => lines[lo])
+              .oldLine ??
           0;
-      final newStart = lines.sublist(lo, hi).firstWhere(
-          (l) => l.newLine != null, orElse: () => lines[lo]).newLine ??
+      final newStart = lines
+              .sublist(lo, hi)
+              .firstWhere((l) => l.newLine != null, orElse: () => lines[lo])
+              .newLine ??
           0;
       sb.writeln('@@ -$oldStart +$newStart @@');
       for (var i = lo; i < hi; i++) {
@@ -133,8 +138,17 @@ DiffResult _diffFallback(List<String> la, List<String> lb, bool ignoreWs) {
     for (var j = 0; j < lb.length; j++)
       DiffLine(DiffOp.insert, lb[j], newLine: j + 1),
   ];
-  return DiffResult(out,
-      out.isEmpty ? [] : [DiffHunk(start: 0, end: out.length, hasInsert: lb.isNotEmpty, hasDelete: la.isNotEmpty)]);
+  return DiffResult(
+      out,
+      out.isEmpty
+          ? []
+          : [
+              DiffHunk(
+                  start: 0,
+                  end: out.length,
+                  hasInsert: lb.isNotEmpty,
+                  hasDelete: la.isNotEmpty)
+            ]);
 }
 
 List<DiffHunk> _hunksOf(List<DiffLine> lines) {
@@ -152,8 +166,8 @@ List<DiffHunk> _hunksOf(List<DiffLine> lines) {
       if (lines[i].op == DiffOp.delete) hasDel = true;
       i++;
     }
-    hunks.add(DiffHunk(
-        start: start, end: i, hasInsert: hasIns, hasDelete: hasDel));
+    hunks.add(
+        DiffHunk(start: start, end: i, hasInsert: hasIns, hasDelete: hasDel));
   }
   return hunks;
 }
@@ -178,8 +192,7 @@ int? nextChange(List<DiffLine> lines, int fromIndex, {bool forward = true}) {
 String applySelectedHunks(
     String original, String modified, Set<int> acceptedHunkIndexes,
     {bool ignoreWhitespace = false}) {
-  final d = diffLines(original, modified,
-      ignoreWhitespace: ignoreWhitespace);
+  final d = diffLines(original, modified, ignoreWhitespace: ignoreWhitespace);
   final changed = d.changedHunks;
   final keep = <int>{};
   for (final idx in acceptedHunkIndexes) {
@@ -190,14 +203,14 @@ String applySelectedHunks(
   for (final h in changed) {
     if (!keep.contains(h.start)) continue;
     // contexto original até o hunk
-    final firstOld =
-        d.lines.sublist(h.start, h.end).firstWhere((l) => l.oldLine != null,
-                orElse: () => d.lines[h.start])
-            .oldLine;
+    final firstOld = d.lines
+        .sublist(h.start, h.end)
+        .firstWhere((l) => l.oldLine != null, orElse: () => d.lines[h.start])
+        .oldLine;
     final cutTo = firstOld != null ? firstOld - 1 : lastOld;
     if (cutTo > lastOld) {
-      final ctx = const LineSplitter().convert(original)
-          .sublist(lastOld, cutTo < original.split('\n').length ? cutTo : lastOld);
+      final ctx = const LineSplitter().convert(original).sublist(
+          lastOld, cutTo < original.split('\n').length ? cutTo : lastOld);
       for (final l in ctx) {
         sb.writeln(l);
       }
@@ -240,11 +253,14 @@ String revertHunk(String original, String modified, int changedHunkIndex,
   final oldTexts = <String>[];
   for (var i = h.start; i < h.end; i++) {
     final l = d.lines[i];
-    if (l.op == DiffOp.insert && l.newLine != null) newIdxs.add(l.newLine - 1);
+    final newLine = l.newLine;
+    if (l.op == DiffOp.insert && newLine != null) newIdxs.add(newLine - 1);
     if (l.op == DiffOp.delete) oldTexts.add(l.text);
   }
   final replaceAt = newIdxs.isEmpty
-      ? (d.lines[h.start].newLine != null ? d.lines[h.start].newLine! - 1 : null)
+      ? (d.lines[h.start].newLine != null
+          ? d.lines[h.start].newLine! - 1
+          : null)
       : newIdxs.first;
   var inserted = false;
   for (var i = 0; i < modLines.length; i++) {
@@ -264,8 +280,7 @@ List<(String, bool)> wordDiff(String oldLine, String newLine) {
   final ow = oldLine.split(RegExp(r'(\s+)'));
   final nw = newLine.split(RegExp(r'(\s+)'));
   final common = <String>{...ow}.intersection({...nw});
-  final marks = <(String, bool)>[]
-      ;
+  final marks = <(String, bool)>[];
   for (final w in nw) {
     marks.add((w, !common.contains(w) && w.trim().isNotEmpty));
   }

@@ -202,8 +202,7 @@ class ProviderFileSpec {
             if (generation.temperature != null)
               'temperature': generation.temperature,
             if (generation.topP != null) 'topP': generation.topP,
-            if (generation.maxTokens != null)
-              'maxTokens': generation.maxTokens,
+            if (generation.maxTokens != null) 'maxTokens': generation.maxTokens,
             if (generation.seed != null) 'seed': generation.seed,
             if (generation.stopSequences.isNotEmpty)
               'stopSequences': generation.stopSequences,
@@ -246,20 +245,19 @@ class FileSettings implements SettingsGateway {
 
   static Future<FileSettings> load(String dataDir) async {
     final f = File('$dataDir/$fileName');
-    if (!await f.exists()) return FileSettings._(const {});
+    if (!await f.exists()) return FileSettings._(<String, Object?>{});
     try {
       final decoded = jsonDecode(await f.readAsString());
       if (decoded is Map<Object?, Object?>) {
-        return FileSettings._(decoded.cast<String, Object?>());
+        return FileSettings._(Map<String, Object?>.from(decoded));
       }
     } on FormatException {
       // JSON corrompido: settings vazios REAIS (nunca valores mockados).
     }
-    return FileSettings._(const {});
+    return FileSettings._(<String, Object?>{});
   }
 
-  static Future<void> save(
-      String dataDir, Map<String, Object?> values) async {
+  static Future<void> save(String dataDir, Map<String, Object?> values) async {
     final f = File('$dataDir/$fileName');
     await f.parent.create(recursive: true);
     await f.writeAsString(const JsonEncoder.withIndent('  ').convert(values));
@@ -289,6 +287,10 @@ class FileSettings implements SettingsGateway {
       ((_values['recentWorkspaces'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList();
+
+  void setRecentWorkspaces(Iterable<String> paths) {
+    _values['recentWorkspaces'] = List<String>.of(paths);
+  }
 
   int? _intAt(String key) {
     final v = get(key);
@@ -450,15 +452,24 @@ ToolRegistry buildFullToolRegistry(SqliteDb db,
     ..register(DebugStartSessionTool(null))
     ..register(DebugSetBreakpointTool())
     ..register(DebugRemoveBreakpointTool())
-    ..register(DebugStepTool('next', 'debug.step_over', 'Step over',
+    ..register(DebugStepTool(
+        'next',
+        'debug.step_over',
+        'Step over',
         'DAP next REAL na primeira thread viva; aguarda o próximo evento '
-        'stopped do adapter e reporta arquivo:linha do topo da stack.'))
-    ..register(DebugStepTool('stepIn', 'debug.step_into', 'Step into',
+            'stopped do adapter e reporta arquivo:linha do topo da stack.'))
+    ..register(DebugStepTool(
+        'stepIn',
+        'debug.step_into',
+        'Step into',
         'DAP stepIn REAL na primeira thread viva; aguarda parada e reporta '
-        'posição resultante.'))
-    ..register(DebugStepTool('stepOut', 'debug.step_out', 'Step out',
+            'posição resultante.'))
+    ..register(DebugStepTool(
+        'stepOut',
+        'debug.step_out',
+        'Step out',
         'DAP stepOut REAL: sai da função atual e espera o evento stopped do '
-        'adapter.'))
+            'adapter.'))
     ..register(DebugEvaluateExpressionTool())
     ..register(DebugGetStackTool())
     ..register(DebugGetVariablesTool())
@@ -521,7 +532,7 @@ Future<ProviderRegistry> buildProviders(
 class VtApp {
   VtApp._({
     required this.dataDir,
-    required this.workspaceRoots,
+    required List<String> workspaceRoots,
     required this.db,
     required this.memory,
     required this.checkpoints,
@@ -530,7 +541,7 @@ class VtApp {
     required this.registry,
     required this.chat,
     required this.providerIds,
-  });
+  }) : _workspaceRoots = workspaceRoots;
 
   /// Monta a aplicação completa sobre um diretório de dados e raízes de
   /// workspace reais. [approvalGateway] vem da UI (diálogos de aprovação);
@@ -548,7 +559,19 @@ class VtApp {
 
     final db = await openLocalDb(dir);
     final settings = await FileSettings.load(dir);
-    final sandbox = WorkspaceSandbox(roots: workspaceRoots, tempDir: tempDir.path);
+    final rootCandidates = {...workspaceRoots, ...settings.recentWorkspaces};
+    final canonicalRoots = <String>{};
+    for (final candidate in rootCandidates) {
+      final directory = Directory(candidate);
+      canonicalRoots.add(await directory.exists()
+          ? await directory.resolveSymbolicLinks()
+          : candidate);
+    }
+    final roots = canonicalRoots.toList();
+    final sandbox = WorkspaceSandbox(roots: roots, tempDir: tempDir.path);
+    roots
+      ..clear()
+      ..addAll(sandbox.roots);
     final registry = buildFullToolRegistry(db, dataDir: dir);
     final providers = await buildProviders(
       settings.providers,
@@ -558,7 +581,7 @@ class VtApp {
       db: db,
       providers: providers,
       tools: registry,
-      workspaceRoots: workspaceRoots,
+      workspaceRoots: roots,
       sandbox: sandbox,
       settings: settings,
       approvalGateway: approvalGateway,
@@ -566,7 +589,7 @@ class VtApp {
 
     return VtApp._(
       dataDir: dir,
-      workspaceRoots: workspaceRoots,
+      workspaceRoots: roots,
       db: db,
       memory: MemoryStore(db),
       checkpoints: CheckpointStore(db, dataDir: dir),
@@ -579,7 +602,8 @@ class VtApp {
   }
 
   final String dataDir;
-  final List<String> workspaceRoots;
+  final List<String> _workspaceRoots;
+  List<String> get workspaceRoots => List.unmodifiable(_workspaceRoots);
   final SqliteDb db;
   final MemoryStore memory;
 
@@ -592,6 +616,14 @@ class VtApp {
 
   /// ids dos provedores registrados nesta sessão (segredos já resolvidos).
   final List<String> providerIds;
+
+  /// Atualiza as raízes confiáveis e o contexto compartilhado do executor.
+  void setWorkspaceRoots(Iterable<String> roots) {
+    sandbox.setRoots(roots);
+    _workspaceRoots
+      ..clear()
+      ..addAll(sandbox.roots);
+  }
 
   void dispose() => db.close();
 }

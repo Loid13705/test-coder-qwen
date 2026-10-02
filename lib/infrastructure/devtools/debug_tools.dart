@@ -22,6 +22,7 @@ import 'dart:math';
 import '../../domain/errors/vt_failure.dart';
 import '../../domain/tools/tool_contract.dart';
 import '../process/process_utils.dart';
+import 'dap_framer.dart';
 import 'dev_tools.dart';
 
 // ====================================================== sessão DAP (debug.*)
@@ -54,7 +55,7 @@ class DebugSessionManager {
     required String adapterExe,
     required List<String> adapterArgs,
     required Map<String, Object?> launchRequest,
-    Duration timeout,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     final s = _DapSession(
       cwd: cwd,
@@ -113,10 +114,11 @@ class _DapSession {
   final Map<String, Map<String, Object?>> _scopesByFrame = {};
 
   Process? _proc;
-  StreamSubscription<List<int>>? _sub;
+  StreamSubscription<Map<String, Object?>>? _sub;
   SessionState state = SessionState.created;
   String? lastStoppedReason;
-  int get breakpointCount => _breakpoints.values.fold(0, (a, b) => a + b.length);
+  int get breakpointCount =>
+      _breakpoints.values.fold(0, (a, b) => a + b.length);
 
   final Map<String, List<Map<String, Object?>>> _breakpoints = {};
 
@@ -124,31 +126,29 @@ class _DapSession {
       ? timeout
       : const Duration(seconds: 60);
 
-  Future<void> whenExited() => _proc!.exit;
+  Future<void> whenExited() => _proc!.exitCode.then((_) {});
 
   // ------------------------------------------------------------ transporte
   Future<void> initialize() async {
     final Process proc;
     try {
-      proc = await Process.start(adapterExe, adapterArgs, workingDirectory: cwd);
+      proc =
+          await Process.start(adapterExe, adapterArgs, workingDirectory: cwd);
     } on ProcessException catch (e) {
       throw VtFailure(
         code: VtErrorCode.binaryMissing,
-        message: 'Falha ao iniciar o debug adapter "$adapterExe": ${e.message}. '
+        message:
+            'Falha ao iniciar o debug adapter "$adapterExe": ${e.message}. '
             'Configure "debug.adapterPath" (ex.: dart-debug-dap ou '
             'flutter-debug-dap) ou instale o adapter no PATH.',
       );
     }
     _proc = proc;
-    final parser = _DapFramer();
-    _sub = proc.stdout
-        .transform(const Utf8Decoder(allowMalformed: true))
-        .transform(parser)
-        .listen(_onMessage);
+    _sub = proc.stdout.transform(DapFramer()).listen(_onMessage);
     proc.stderr
         .transform(const Utf8Decoder(allowMalformed: true))
         .forEach((chunk) => _adapterLog.write(chunk));
-    unawaited(proc.exit.then((int code) {
+    unawaited(proc.exitCode.then((int code) {
       _exitCode = code;
       state = SessionState.terminated;
       for (final c in _pending.values) {
@@ -212,7 +212,12 @@ class _DapSession {
     final mySeq = _seq++;
     final completer = Completer<Map<String, Object?>>();
     _pending[mySeq] = completer;
-    final payload = jsonEncode({'seq': mySeq, 'type': 'request', 'command': command, 'arguments': args});
+    final payload = jsonEncode({
+      'seq': mySeq,
+      'type': 'request',
+      'command': command,
+      'arguments': args
+    });
     final bytes = utf8.encode(payload);
     proc.stdin.write('Content-Length: ${bytes.length}\r\n\r\n');
     proc.stdin.add(bytes);
@@ -249,8 +254,8 @@ class _DapSession {
   /// Espera (realmente) o próximo evento `stopped` após uma ação assíncrona.
   Future<Map<String, Object?>?> waitForStop(Duration limit) async {
     if (state == SessionState.stopped) {
-      final ev = _events.lastWhere(
-          (e) => e['event'] == 'stopped', orElse: () => const {});
+      final ev = _events.lastWhere((e) => e['event'] == 'stopped',
+          orElse: () => const {});
       final body = ev['body'];
       return body is Map ? body.cast<String, Object?>() : const {};
     }
@@ -258,8 +263,8 @@ class _DapSession {
     while (DateTime.now().difference(start) < limit) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       if (state == SessionState.stopped) {
-        final ev = _events.lastWhere(
-            (e) => e['event'] == 'stopped', orElse: () => const {});
+        final ev = _events.lastWhere((e) => e['event'] == 'stopped',
+            orElse: () => const {});
         final body = ev['body'];
         return body is Map ? body.cast<String, Object?>() : const {};
       }
@@ -274,7 +279,8 @@ class _DapSession {
     state = SessionState.running;
   }
 
-  Future<void> setBreakpoints(String file, List<Map<String, Object?>> bps) async {
+  Future<void> setBreakpoints(
+      String file, List<Map<String, Object?>> bps) async {
     final abs = File(file).absolute.path;
     final res = await request('setBreakpoints', {
       'source': {'path': abs},
@@ -317,13 +323,15 @@ class _DapSession {
         message: 'Breakpoint inexistente em $abs:$line (nada removido).',
       );
     }
-    await setBreakpoints(abs, remaining.map((b) => {
-          'line': b['line'],
-          if (b['condition'] != null) 'condition': b['condition'],
-        }).toList());
-    return remaining
-        .where((b) => b['verified'] == true)
-        .length;
+    await setBreakpoints(
+        abs,
+        remaining
+            .map((b) => {
+                  'line': b['line'],
+                  if (b['condition'] != null) 'condition': b['condition'],
+                })
+            .toList());
+    return remaining.where((b) => b['verified'] == true).length;
   }
 
   Future<List<int>> threads() async {
@@ -335,7 +343,8 @@ class _DapSession {
         .toList();
   }
 
-  Future<List<Map<String, Object?>>> stackTrace(int threadId, {int? startFrame, int? levels}) async {
+  Future<List<Map<String, Object?>>> stackTrace(int threadId,
+      {int? startFrame, int? levels}) async {
     final res = await request('stackTrace', {
       'threadId': threadId,
       if (startFrame != null) 'startFrame': startFrame,
@@ -358,7 +367,8 @@ class _DapSession {
       'variablesReference': variablesReference,
       if (filter != null) 'filter': filter,
     });
-    return (res['variables'] as List?)?.cast<Map<String, Object?>>() ?? const [];
+    return (res['variables'] as List?)?.cast<Map<String, Object?>>() ??
+        const [];
   }
 
   Future<Map<String, Object?>> evaluate(String expression, int frameId) async {
@@ -379,8 +389,7 @@ class _DapSession {
     state = SessionState.running;
   }
 
-  Future<void> pause(int threadId) =>
-      request('pause', {'threadId': threadId});
+  Future<void> pause(int threadId) => request('pause', {'threadId': threadId});
 
   Future<void> disconnect() async {
     try {
@@ -399,59 +408,6 @@ class _DapSession {
 }
 
 enum SessionState { created, initialized, running, stopped, terminated }
-
-/// Framer DAP: decodifica mensagens `Content-Length: N\r\n\r\n{json}`.
-class _DapFramer extends Converter<String, Map<String, Object?>> {
-  final StringBuffer _buf = StringBuffer();
-
-  @override
-  Map<String, Object?> bind(Stream<String> stream) {
-    final out = StreamController<Map<String, Object?>>();
-    stream.listen((chunk) {
-      _buf.write(chunk);
-      _drain(out);
-    }, onError: out.addError, onDone: out.close);
-    return out.stream;
-  }
-
-  void _drain(StreamController<Map<String, Object?>> out) {
-    while (true) {
-      final s = _buf.toString();
-      final idx = s.indexOf('\r\n\r\n');
-      if (idx < 0) break;
-      final header = s.substring(0, idx);
-      final lenMatch =
-          RegExp(r'Content-Length:\s*(\d+)', caseSensitive: false).firstMatch(header);
-      if (lenMatch == null) {
-        _buf.clear();
-        out.addError(VtFailure(
-          code: VtErrorCode.internalError,
-          message: 'Debug adapter enviou frame sem Content-Length — protocolo '
-              'quebrado.',
-        ));
-        return;
-      }
-      final len = int.parse(lenMatch.group(1)!);
-      final bodyStart = idx + 4;
-      final bodyBytes = utf8.encode(s.substring(bodyStart));
-      if (bodyBytes.length < len) break; // ainda incompleto
-      final bodyStr = utf8.decode(bodyBytes.sublist(0, len), allowMalformed: true);
-      final rest = utf8.decode(bodyBytes.sublist(len), allowMalformed: true);
-      _buf..clear()..write(rest);
-      try {
-        out.add(jsonDecode(bodyStr) as Map<String, Object?>);
-      } on FormatException catch (e) {
-        out.addError(VtFailure(
-            code: VtErrorCode.internalError,
-            message: 'Frame DAP inválido do adapter: ${e.message}'));
-        return;
-      }
-    }
-  }
-
-  @override
-  Map<String, Object?> convert(String input) => throw UnimplementedError();
-}
 
 // ================================================ JSON-RPC VM Service real
 
@@ -475,7 +431,8 @@ class _VmServiceWsClient {
       final socket = await Socket.connect(host, port,
           timeout: const Duration(seconds: 10));
       _socket = socket;
-      final key = base64Encode(List<int>.generate(16, (_) => _rnd.nextInt(256)));
+      final key =
+          base64Encode(List<int>.generate(16, (_) => _rnd.nextInt(256)));
       final path = uri.path.isEmpty ? '/' : uri.path;
       final req = 'GET $path HTTP/1.1\r\n'
           'Host: $host:$port\r\n'
@@ -499,8 +456,8 @@ class _VmServiceWsClient {
       });
       String head;
       try {
-        head = await hs.future
-            .timeout(const Duration(seconds: 10), onTimeout: () {
+        head =
+            await hs.future.timeout(const Duration(seconds: 10), onTimeout: () {
           throw VtFailure(
             code: VtErrorCode.timeout,
             message: 'VM Service em $uri não completou o handshake WS em 10s.',
@@ -553,7 +510,7 @@ class _VmServiceWsClient {
   void _onBytes(List<int> bytes) {
     // Frames WebSocket simples (opcode text, sem máscara do servidor):
     // acumula e tenta decodificar payloads completos.
-    _partial.add(utf8.decode(bytes, allowMalformed: true));
+    _partial.write(utf8.decode(bytes, allowMalformed: true));
     final raw = _partial.toString();
     final decoder = _WsTextDecoder();
     final msgs = decoder.feed(raw);
@@ -572,7 +529,8 @@ class _VmServiceWsClient {
     }
   }
 
-  Future<dynamic> call(String method, [Map<String, Object?> params = const {}]) async {
+  Future<dynamic> call(String method,
+      [Map<String, Object?> params = const {}]) async {
     final socket = _socket;
     if (socket == null) {
       throw VtFailure(
@@ -585,8 +543,7 @@ class _VmServiceWsClient {
     final frame = _WsTextEncoder.encode(jsonEncode(
         {'jsonrpc': '2.0', 'id': id, 'method': method, 'params': params}));
     socket.add(frame);
-    return completer.future
-        .timeout(const Duration(seconds: 15), onTimeout: () {
+    return completer.future.timeout(const Duration(seconds: 15), onTimeout: () {
       _pending.remove(id);
       throw VtFailure(
         code: VtErrorCode.timeout,
@@ -629,7 +586,8 @@ class _WsTextDecoder {
       }
       if (_acc.length < off + len) break;
       if (opcode == 0x1) {
-        out.add(utf8.decode(_acc.sublist(off, off + len), allowMalformed: true));
+        out.add(
+            utf8.decode(_acc.sublist(off, off + len), allowMalformed: true));
       }
       _acc.removeRange(0, off + len);
     }
@@ -640,12 +598,16 @@ class _WsTextDecoder {
 class _WsTextEncoder {
   static List<int> encode(String text) {
     final payload = utf8.encode(text);
-    final masked = List<int>.generate(payload.length, (i) => payload[i] ^ _mask[i % 4]);
+    final masked =
+        List<int>.generate(payload.length, (i) => payload[i] ^ _mask[i % 4]);
     final header = <int>[0x81]; // FIN + text
     if (payload.length <= 125) {
       header.add(0x80 | payload.length);
     } else if (payload.length <= 0xffff) {
-      header..add(0x80 | 126)..add(payload.length >> 8 & 0xff)..add(payload.length & 0xff);
+      header
+        ..add(0x80 | 126)
+        ..add(payload.length >> 8 & 0xff)
+        ..add(payload.length & 0xff);
     } else {
       header.add(0x80 | 127);
       for (var i = 7; i >= 0; i--) {
@@ -656,7 +618,8 @@ class _WsTextEncoder {
     return [...header, ...masked];
   }
 
-  static final List<int> _mask = List<int>.generate(4, (_) => _rnd.nextInt(256));
+  static final List<int> _mask =
+      List<int>.generate(4, (_) => _rnd.nextInt(256));
 }
 
 // ============================================== helpers compartilhados
@@ -693,7 +656,7 @@ class TestRunSuiteTool extends QualityToolBase {
   @override
   ToolCategory get category => ToolCategory.test;
   @override
-  RiskLevel get risk => RiskLevel.localRead;
+  RiskLevel get risk => RiskLevel.readOnly;
   @override
   ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.auto;
   @override
@@ -728,8 +691,7 @@ class TestRunSuiteTool extends QualityToolBase {
       final targets = input.list('paths');
       final common = <String>[
         if (input.str('name').isNotEmpty) ...['-N', input.str('name')],
-        if (input.boolOf('plainReporter'))
-          '--reporter=expanded',
+        if (input.boolOf('plainReporter')) '--reporter=expanded',
         if (input.intOrNull('concurrency') != null)
           '--concurrency=${input.intOrNull('concurrency')}',
         ...targets,
@@ -805,8 +767,9 @@ class TestGetCoverageTool extends QualityToolBase {
       ToolContext ctx, MapToolInput input) async {
     try {
       final root = workingDir(ctx);
-      final outRel =
-          input.str('output').isEmpty ? 'coverage/lcov.info' : input.str('output');
+      final outRel = input.str('output').isEmpty
+          ? 'coverage/lcov.info'
+          : input.str('output');
       final outAbs = joinPath(root, outRel);
       final ProcResult res;
       final flavor = await isFlutterWorkspace(ctx) ? 'flutter' : 'dart';
@@ -817,14 +780,21 @@ class TestGetCoverageTool extends QualityToolBase {
         res = await runProcess(ctx, ['test', '--coverage=$covDir']);
         if (res.exitCode == 0) {
           final fmt = await runProcess(ctx, [
-            'pub', 'global', 'run', 'coverage:format_coverage',
-            '--lcov', '--in=.dart_tool/coverage', '--out=$outAbs',
-            '--report-on=lib', '--packages=.dart_tool/package_config.json',
+            'pub',
+            'global',
+            'run',
+            'coverage:format_coverage',
+            '--lcov',
+            '--in=.dart_tool/coverage',
+            '--out=$outAbs',
+            '--report-on=lib',
+            '--packages=.dart_tool/package_config.json',
           ]);
           if (fmt.exitCode != 0) {
             return ToolFailureResult(VtFailure(
               code: VtErrorCode.buildFailed,
-              message: 'coverage:format_coverage falhou (exit ${fmt.exitCode}). '
+              message:
+                  'coverage:format_coverage falhou (exit ${fmt.exitCode}). '
                   'Instale com: dart pub global activate coverage',
               details: {'stderr': fmt.stderr},
             ));
@@ -846,7 +816,7 @@ class TestGetCoverageTool extends QualityToolBase {
         data: TextOutput(
           'Cobertura REAL ($flavor): ${report['coveredLines']}/'
           '${report['totalLines']} linhas (${report['percent']}%)\n'
-          '${report['perFile'].join('\n')}',
+          '${(report['perFile'] as List).join('\n')}',
           metadata: {...report, 'lcovPath': outAbs, 'flavor': flavor},
         ),
         artifacts: [ArtifactRef(kindOf: 'coverage', pathOrUri: outAbs)],
@@ -909,7 +879,7 @@ class LintRunTool extends QualityToolBase {
   @override
   ToolCategory get category => ToolCategory.lint;
   @override
-  RiskLevel get risk => RiskLevel.localRead;
+  RiskLevel get risk => RiskLevel.readOnly;
   @override
   ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.auto;
   @override
@@ -923,7 +893,10 @@ class LintRunTool extends QualityToolBase {
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
         'properties': {
-          'targets': {'type': 'array', 'items': {'type': 'string'}},
+          'targets': {
+            'type': 'array',
+            'items': {'type': 'string'}
+          },
           'fatalWarnings': {'type': 'boolean'},
           'includeFormatCheck': {'type': 'boolean'},
         },
@@ -947,8 +920,8 @@ class LintRunTool extends QualityToolBase {
       var failed = res.exitCode != 0;
       var code = failed ? VtErrorCode.buildFailed : VtErrorCode.internalError;
       if (input.boolOf('includeFormatCheck')) {
-        final fmt = await runProcess(
-            ctx, ['format', '--output=none', '--set-exit-if-changed', ...targets]);
+        final fmt = await runProcess(ctx,
+            ['format', '--output=none', '--set-exit-if-changed', ...targets]);
         buffer.writeln('--- dart format ---');
         buffer.writeln(fmt.combined);
         if (fmt.exitCode != 0) {
@@ -956,12 +929,14 @@ class LintRunTool extends QualityToolBase {
           code = VtErrorCode.buildFailed;
         }
       }
-      final diagnostics = RegExp(
-              r'(?:info|warning|error)\s•\s(.+?):(\d+):(\d+)')
-          .allMatches(buffer.toString())
-          .map((m) =>
-              Citation(sourceType: 'file', sourceRef: '${m[1]}:${m[2]}', label: 'lint ${m[0]}'))
-          .toList();
+      final diagnostics =
+          RegExp(r'(?:info|warning|error)\s•\s(.+?):(\d+):(\d+)')
+              .allMatches(buffer.toString())
+              .map((m) => Citation(
+                  sourceType: 'file',
+                  sourceRef: '${m[1]}:${m[2]}',
+                  label: 'lint ${m[0]}'))
+              .toList();
       final text = buffer.toString();
       if (failed) {
         return ToolFailureResult(VtFailure(
@@ -993,8 +968,8 @@ class BugReproduceTool extends QualityToolBase {
 
   /// Executor interno de tool (mesmo canal do loop do agente) para passos
   /// `tool:<id>` — permite reproduzir usando as próprias ferramentas reais.
-  final Future<ToolResult<ToolOutput>> Function(String toolId,
-      Map<String, Object?> input, ToolContext ctx)? executor;
+  final Future<ToolResult<ToolOutput>> Function(
+      String toolId, Map<String, Object?> input, ToolContext ctx)? executor;
 
   @override
   String get id => 'bug.reproduce';
@@ -1043,12 +1018,13 @@ class BugReproduceTool extends QualityToolBase {
       final steps = input.list('steps');
       if (steps.isEmpty) {
         return ToolFailureResult(VtFailure(
-            code: VtErrorCode.validationFailed, message: 'Lista de passos vazia.'));
+            code: VtErrorCode.validationFailed,
+            message: 'Lista de passos vazia.'));
       }
       final expect = input.str('expect');
       final stopOnFail = input.boolOf('stopOnFirstFailure', true);
-      final logPath = joinPath(
-          _workspaceRoot(ctx), '.techvt', 'repro-${_newId('log')}.log');
+      final logPath =
+          joinPath(_workspaceRoot(ctx), '.techvt/repro-${_newId('log')}.log');
       await File(logPath).parent.create(recursive: true);
       final sink = File(logPath).openWrite();
       final results = <String>[];
@@ -1068,11 +1044,12 @@ class BugReproduceTool extends QualityToolBase {
         }
         final all = results.join('; ');
         if (expect.isNotEmpty) {
-          reproduced = await File(logPath).readAsString().contains(expect);
+          reproduced = (await File(logPath).readAsString()).contains(expect);
         } else {
           reproduced = firstFailureIdx >= 0;
         }
-        sink.writeln('### RESULTADO: ${reproduced ? 'REPRODUZIDO' : 'nao reproduzido'} '
+        sink.writeln(
+            '### RESULTADO: ${reproduced ? 'REPRODUZIDO' : 'nao reproduzido'} '
             '($all)');
       } finally {
         await sink.flush();
@@ -1082,7 +1059,8 @@ class BugReproduceTool extends QualityToolBase {
         ..writeln('Reprodução ${reproduced ? 'CONFIRMADA' : 'não confirmada'}.')
         ..writeln(results.join('\n'));
       if (firstFailureIdx >= 0) {
-        report.writeln('Primeiro passo com falha real: ${firstFailureIdx + 1}.');
+        report
+            .writeln('Primeiro passo com falha real: ${firstFailureIdx + 1}.');
       }
       return ToolSuccess(
         data: TextOutput(report.toString(), metadata: {
@@ -1167,7 +1145,7 @@ class BugVerifyFixTool extends QualityToolBase {
   @override
   ToolCategory get category => ToolCategory.bug;
   @override
-  RiskLevel get risk => RiskLevel.localRead;
+  RiskLevel get risk => RiskLevel.readOnly;
   @override
   ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.auto;
   @override
@@ -1186,7 +1164,10 @@ class BugVerifyFixTool extends QualityToolBase {
             'description': 'arquivo/diretório de teste OU nome (-N)'
           },
           'testNameIsFilter': {'type': 'boolean'},
-          'reproSteps': {'type': 'array', 'items': {'type': 'string'}},
+          'reproSteps': {
+            'type': 'array',
+            'items': {'type': 'string'}
+          },
           'expectBugGone': {'type': 'boolean'},
         },
       };
@@ -1219,7 +1200,8 @@ class BugVerifyFixTool extends QualityToolBase {
         report.writeln(_lastLine(res.combined));
         if (res.exitCode != 0) {
           allGreen = false;
-          return ToolFailureResult(failure(res, VtErrorCode.testFailed, 'test'));
+          return ToolFailureResult(
+              failure(res, VtErrorCode.testFailed, 'test'));
         }
       }
       if (reproSteps.isNotEmpty) {
@@ -1228,9 +1210,9 @@ class BugVerifyFixTool extends QualityToolBase {
             ctx, MapToolInput({'steps': reproSteps, 'expect': ''}));
         switch (r) {
           case ToolSuccess(:final data):
-            final reproduced =
-                data.metadata['reproduced'] == true;
-            final stillBroken = reproduced && !input.boolOf('expectBugGone', true);
+            final reproduced = data.metadata['reproduced'] == true;
+            final stillBroken =
+                reproduced && !input.boolOf('expectBugGone', true);
             report.writeln('— reprodução: '
                 '${reproduced ? 'bug AINDA PRESENTE' : 'bug não reproduzido'}');
             report.writeln(data.text);
@@ -1363,12 +1345,14 @@ class BugBisectTool extends QualityToolBase {
       if (firstBad == null) {
         return ToolFailureResult(VtFailure(
           code: VtErrorCode.internalError,
-          message: 'Bisect esgotou $maxSteps passos sem achar o primeiro commit '
+          message:
+              'Bisect esgotou $maxSteps passos sem achar o primeiro commit '
               'ruim (ver trace).',
           details: {'trace': trace.toString()},
         ));
       }
-      final info = await runGitIn(ctx, ['show', '--no-patch', '--format=%h %an %ad %s', firstBad]);
+      final info = await runGitIn(
+          ctx, ['show', '--no-patch', '--format=%h %an %ad %s', firstBad]);
       return ToolSuccess(
         data: TextOutput(
           'PRIMEIRO COMMIT RUIM: ${firstBad.substring(0, 12)}\n'
@@ -1518,7 +1502,7 @@ abstract class _DapToolBase extends QualityToolBase {
   final DebugSessionManager manager;
 
   @override
-  RiskLevel get risk => RiskLevel.localRead;
+  RiskLevel get risk => RiskLevel.readOnly;
   @override
   ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.auto;
   @override
@@ -1532,7 +1516,9 @@ abstract class _DapToolBase extends QualityToolBase {
   Map<String, Object?> get inputSchema => const {
         'type': 'object',
         'required': ['sessionId'],
-        'properties': {'sessionId': {'type': 'string'}},
+        'properties': {
+          'sessionId': {'type': 'string'}
+        },
       };
 
   @override
@@ -1624,7 +1610,8 @@ class DebugRemoveBreakpointTool extends _DapToolBase {
   @override
   Future<ToolResult<TextOutput>> dapExecute(
       ToolContext ctx, MapToolInput input, _DapSession s) async {
-    final remaining = await s.removeBreakpoint(input.str('file'), input.intOrNull('line')!);
+    final remaining =
+        await s.removeBreakpoint(input.str('file'), input.intOrNull('line')!);
     return ToolSuccess(
       data: TextOutput(
         'Breakpoint removido. Restam $remaining verificados no arquivo.',
@@ -1712,8 +1699,7 @@ class DebugEvaluateExpressionTool extends _DapToolBase {
             '(use debug.get_stack para confirmar parada).',
       );
     }
-    final frameId = input.intOrNull('frameId') ??
-        await _currentTopFrame(s);
+    final frameId = input.intOrNull('frameId') ?? await _currentTopFrame(s);
     final res = await s.evaluate(input.str('expression'), frameId);
     return ToolSuccess(
       data: TextOutput(
@@ -1735,8 +1721,7 @@ class DebugEvaluateExpressionTool extends _DapToolBase {
     }
     final frame = (await s.stackTrace(threads.first)).firstOrNull;
     if (frame == null) {
-      throw VtFailure(
-          code: VtErrorCode.internalError, message: 'Stack vazia.');
+      throw VtFailure(code: VtErrorCode.internalError, message: 'Stack vazia.');
     }
     return (frame['id'] as num).toInt();
   }
@@ -1773,8 +1758,7 @@ class DebugGetStackTool extends _DapToolBase {
       throw VtFailure(
           code: VtErrorCode.internalError, message: 'Sessão sem threads.');
     }
-    final frames =
-        await s.stackTrace(tid, levels: input.intOrNull('levels'));
+    final frames = await s.stackTrace(tid, levels: input.intOrNull('levels'));
     final lines = <String>[];
     final citations = <Citation>[];
     for (var i = 0; i < frames.length; i++) {
@@ -1883,6 +1867,7 @@ Future<String?> _discoverVmServiceUri(ToolContext ctx) async {
   }
   return null;
 }
+
 class DebugAttachObservatoryTool extends QualityToolBase {
   DebugAttachObservatoryTool({this.wsConnector});
 
@@ -1906,7 +1891,7 @@ class DebugAttachObservatoryTool extends QualityToolBase {
   @override
   ToolCategory get category => ToolCategory.debug;
   @override
-  RiskLevel get risk => RiskLevel.localRead;
+  RiskLevel get risk => RiskLevel.readOnly;
   @override
   ApprovalPolicyMode get defaultApproval => ApprovalPolicyMode.auto;
   @override

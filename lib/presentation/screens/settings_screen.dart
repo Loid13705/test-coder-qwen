@@ -12,6 +12,7 @@ import '../../application/app_bootstrap.dart';
 import '../../application/approval.dart';
 import '../../application/chat_service.dart';
 import '../../domain/errors/vt_failure.dart';
+import '../../domain/tools/tool_contract.dart';
 import '../../infrastructure/provider/provider_contract.dart';
 import '../state/app_state.dart';
 import '../theme/vt_theme.dart';
@@ -21,8 +22,7 @@ class _ProviderHealth {
   const _ProviderHealth._(
       {this.status, this.error, required this.checkedAtMs, this.latencyMs});
 
-  factory _ProviderHealth.pending() =>
-      const _ProviderHealth._(checkedAtMs: 0);
+  factory _ProviderHealth.pending() => const _ProviderHealth._(checkedAtMs: 0);
 
   final ProviderStatus? status;
   final String? error;
@@ -46,7 +46,8 @@ final providerHealthMapProvider =
     StateNotifierProvider<ProviderHealthNotifier, Map<String, _ProviderHealth>>(
         (ref) => ProviderHealthNotifier(ref));
 
-class ProviderHealthNotifier extends StateNotifier<Map<String, _ProviderHealth>> {
+class ProviderHealthNotifier
+    extends StateNotifier<Map<String, _ProviderHealth>> {
   ProviderHealthNotifier(this._ref) : super(const {}) {
     _syncKeys();
   }
@@ -114,12 +115,14 @@ class ProviderHealthNotifier extends StateNotifier<Map<String, _ProviderHealth>>
   }
 }
 
-final providerHealthListProvider = Provider<List<({String id, _ProviderHealth h})>>((ref) {
+final providerHealthListProvider =
+    Provider<List<({String id, _ProviderHealth h})>>((ref) {
   ref.watch(providerHealthMapProvider);
   final map = ref.read(providerHealthMapProvider);
   final providers = ref.watch(chatServiceProvider).providers.all;
   return [
-    for (final p in providers) (id: p.id, h: map[p.id] ?? _ProviderHealth.pending())
+    for (final p in providers)
+      (id: p.id, h: map[p.id] ?? _ProviderHealth.pending())
   ];
 });
 
@@ -161,22 +164,18 @@ class SettingsScreen extends ConsumerWidget {
         Text(
           'Persistidos em <dataDir>/settings.json. Chaves ficam no storage de '
           'segredos local, separadas do arquivo de configuração.',
-          style:
-              theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+          style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
         ),
         const SizedBox(height: 16),
         const _Section(title: 'Provedores de modelos', child: _ProvidersCard()),
-        const _Section(
-            title: 'Modelo padrão', child: _DefaultModelCard()),
+        const _Section(title: 'Modelo padrão', child: _DefaultModelCard()),
         const _Section(title: 'Modo do composer', child: _ComposerModeCard()),
-        const _Section(
-            title: 'Postura do agente', child: _PostureCard()),
+        const _Section(title: 'Postura do agente', child: _PostureCard()),
         const _Section(
             title: 'Aprovação de ferramentas', child: _ApprovalCard()),
         const _Section(title: 'Limites do agente', child: _LimitsCard()),
         const _Section(
-            title: 'System prompt do agente',
-            child: _SystemPromptCard()),
+            title: 'System prompt do agente', child: _SystemPromptCard()),
         const _Section(title: 'Segredos', child: _SecretsCard()),
         const _Section(title: 'Aparência', child: _ThemeCard()),
         const _Section(title: 'Diagnóstico', child: _HealthSummaryCard()),
@@ -273,9 +272,8 @@ class _ProvidersCardState extends ConsumerState<_ProvidersCard> {
   }
 
   Future<void> _removeProvider(String id) async {
-    final current = ref.read(settingsProvider).providers
-        .where((p) => p.id != id)
-        .toList();
+    final current =
+        ref.read(settingsProvider).providers.where((p) => p.id != id).toList();
     final secrets = ref.read(secretStoreProvider);
     await secrets?.delete(id);
     await _saveSpecs(current);
@@ -306,9 +304,8 @@ class _ProvidersCardState extends ConsumerState<_ProvidersCard> {
               FilledButton.tonalIcon(
                 onPressed: anyChecking || specs.isEmpty
                     ? null
-                    : () => ref
-                        .read(providerHealthMapProvider.notifier)
-                        .checkAll(),
+                    : () =>
+                        ref.read(providerHealthMapProvider.notifier).checkAll(),
                 icon: anyChecking
                     ? const SizedBox(
                         width: 14,
@@ -339,8 +336,8 @@ class _ProvidersCardState extends ConsumerState<_ProvidersCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('${s.id} → ${s.baseUrl}',
-                    style: const TextStyle(
-                        fontFamily: 'monospace', fontSize: 11)),
+                    style:
+                        const TextStyle(fontFamily: 'monospace', fontSize: 11)),
                 Text(
                     'modelos: ${s.modelIds.isEmpty ? '(nenhum listado)' : s.modelIds.join(', ')}'
                     '${s.anthropicNative ? ' • wire Anthropic nativo' : ''}',
@@ -396,7 +393,8 @@ class _ProvidersCardState extends ConsumerState<_ProvidersCard> {
 }
 
 /// Lista real dos ids com chave gravada (nunca o valor).
-final _secretIdsProvider = FutureProvider.autoDispose<List<String>>((ref) async {
+final _secretIdsProvider =
+    FutureProvider.autoDispose<List<String>>((ref) async {
   final store = ref.watch(secretStoreProvider);
   if (store == null) return const [];
   return store.ids();
@@ -406,7 +404,11 @@ final _secretIdsProvider = FutureProvider.autoDispose<List<String>>((ref) async 
     ProviderStatus s, VtColors vt) {
   switch (s) {
     case ProviderStatus.ok:
-      return (icon: Icons.check_circle_outline, label: 'online', color: vt.riskLow);
+      return (
+        icon: Icons.check_circle_outline,
+        label: 'online',
+        color: vt.riskLow
+      );
     case ProviderStatus.rateLimited:
       return (
         icon: Icons.hourglass_empty,
@@ -414,11 +416,7 @@ final _secretIdsProvider = FutureProvider.autoDispose<List<String>>((ref) async 
         color: vt.riskMedium
       );
     case ProviderStatus.offline:
-      return (
-        icon: Icons.cloud_off,
-        label: 'offline',
-        color: vt.riskMedium
-      );
+      return (icon: Icons.cloud_off, label: 'offline', color: vt.riskMedium);
     case ProviderStatus.unconfigured:
       return (
         icon: Icons.settings_ethernet,
@@ -426,11 +424,7 @@ final _secretIdsProvider = FutureProvider.autoDispose<List<String>>((ref) async 
         color: vt.riskHigh
       );
     case ProviderStatus.error:
-      return (
-        icon: Icons.error_outline,
-        label: 'erro',
-        color: vt.riskCritical
-      );
+      return (icon: Icons.error_outline, label: 'erro', color: vt.riskCritical);
   }
 }
 
@@ -449,10 +443,9 @@ class _HealthBadge extends StatelessWidget {
         visualDensity: VisualDensity.compact,
         tooltip: 'Verificar conexão deste provider (health check real)',
         icon: const Icon(Icons.wifi_tethering_off, size: 15),
-        onPressed: () =>
-            ProviderScope.containerOf(context)
-                .read(providerHealthMapProvider.notifier)
-                .checkAll(),
+        onPressed: () => ProviderScope.containerOf(context)
+            .read(providerHealthMapProvider.notifier)
+            .checkAll(),
       );
     }
     if (health.isChecking) {
@@ -461,14 +454,14 @@ class _HealthBadge extends StatelessWidget {
           height: 16,
           child: CircularProgressIndicator(strokeWidth: 2));
     }
-    final (icon, label, color) = health.status != null
+    final visual = health.status != null
         ? _healthVisual(health.status!, VtTheme.of(context))
-        : (Icons.help_outline, 'falhou', vt.riskCritical);
+        : (icon: Icons.help_outline, label: 'falhou', color: vt.riskCritical);
     return Tooltip(
-      message: '$label • ${_checkedAgo(health.checkedAtMs)}'
+      message: '${visual.label} • ${_checkedAgo(health.checkedAtMs)}'
           '${health.latencyMs != null ? ' • ${health.latencyMs}ms' : ''}'
           '${health.error != null ? '\n${health.error}' : ''}',
-      child: Icon(icon, size: 16, color: color),
+      child: Icon(visual.icon, size: 16, color: visual.color),
     );
   }
 }
@@ -481,19 +474,19 @@ class _HealthDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final vt = VtTheme.of(context);
-    final (icon, label, color) = h.status != null
+    final visual = h.status != null
         ? _healthVisual(h.status!, vt)
-        : (Icons.help_outline, 'falhou', vt.riskCritical);
+        : (icon: Icons.help_outline, label: 'falhou', color: vt.riskCritical);
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Text(
-        'conexão: $label'
+        'conexão: ${visual.label}'
         '${h.latencyMs != null ? ' • ${h.latencyMs}ms' : ''}'
         ' • verificado ${_checkedAgo(h.checkedAtMs)}'
         '${h.error != null ? ' • ${h.error}' : ''}',
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 10.5, color: color),
+        style: TextStyle(fontSize: 10.5, color: visual.color),
       ),
     );
   }
@@ -570,7 +563,8 @@ class _ProviderDialogState extends State<_ProviderDialog> {
       final container = ProviderScope.containerOf(context);
       final store = container.read(secretStoreProvider);
       if (store == null) {
-        setState(() => _error = 'Storage de segredos indisponível nesta sessão.');
+        setState(
+            () => _error = 'Storage de segredos indisponível nesta sessão.');
         return;
       }
       await store.write(id, key);
@@ -690,8 +684,8 @@ class _DefaultModelCard extends ConsumerWidget {
           ? Text(
               'Nenhum provider registrado — configure acima. '
               'O chat não inventa modelo fallback.',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.hintColor))
+              style:
+                  theme.textTheme.bodySmall?.copyWith(color: theme.hintColor))
           : DropdownButton<String?>(
               value: models.any((m) => m.id == selected) ? selected : null,
               isExpanded: true,
@@ -737,8 +731,7 @@ class _PostureCard extends ConsumerWidget {
             value: p,
             groupValue: current,
             title: Text(p.label, style: const TextStyle(fontSize: 13)),
-            subtitle: Text(p.description,
-                style: const TextStyle(fontSize: 11)),
+            subtitle: Text(p.description, style: const TextStyle(fontSize: 11)),
             onChanged: (v) async {
               if (v == null) return;
               ref.read(agentPostureProvider.notifier).state = v;
@@ -774,8 +767,7 @@ class _ComposerModeCard extends ConsumerWidget {
             value: m.id,
             groupValue: current,
             title: Text(m.label, style: const TextStyle(fontSize: 13)),
-            subtitle: Text(m.description,
-                style: const TextStyle(fontSize: 11)),
+            subtitle: Text(m.description, style: const TextStyle(fontSize: 11)),
             onChanged: (v) async {
               if (v == null) return;
               ref.read(composerModeProvider.notifier).state = v;
@@ -887,10 +879,8 @@ class _LimitsCardState extends ConsumerState<_LimitsCard> {
     super.initState();
     // Pré-preenche com os valores REAIS atualmente persistidos.
     final s = ref.read(settingsProvider);
-    _maxSteps =
-        TextEditingController(text: '${s.get('maxToolSteps') ?? ''}');
-    _maxCost =
-        TextEditingController(text: '${s.get('maxCostUsd') ?? ''}');
+    _maxSteps = TextEditingController(text: '${s.get('maxToolSteps') ?? ''}');
+    _maxCost = TextEditingController(text: '${s.get('maxCostUsd') ?? ''}');
     _timeout =
         TextEditingController(text: '${s.get('stepTimeoutSeconds') ?? ''}');
   }
@@ -933,8 +923,8 @@ class _LimitsCardState extends ConsumerState<_LimitsCard> {
     });
     ref.invalidate(settingsProvider);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Limites salvos em settings.json.')));
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Limites salvos em settings.json.')));
   }
 
   @override
@@ -964,7 +954,8 @@ class _LimitsCardState extends ConsumerState<_LimitsCard> {
             controller: _maxCost,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Custo máximo por turno em centavos de USD (maxCostUsd)',
+              labelText:
+                  'Custo máximo por turno em centavos de USD (maxCostUsd)',
               isDense: true,
             ),
           ),
@@ -1034,8 +1025,8 @@ class _SystemPromptCardState extends ConsumerState<_SystemPromptCard> {
     await persistSetting(ref, 'agentSystemPrompt', text);
     if (!mounted) return;
     setState(() => _dirty = false);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('System prompt aplicado e salvo.')));
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('System prompt aplicado e salvo.')));
   }
 
   Future<void> restoreDefault() async {
@@ -1121,7 +1112,8 @@ class _SecretsCardState extends ConsumerState<_SecretsCard> {
 
   Future<void> _load() async {
     final store = ref.read(secretStoreProvider);
-    final ids = store == null ? <String>[] : (await store.ids())..sort();
+    final ids = store == null ? <String>[] : (await store.ids())
+      ..sort();
     if (mounted) setState(() => _ids = ids);
   }
 
@@ -1188,10 +1180,11 @@ class _SecretsCardState extends ConsumerState<_SecretsCard> {
               dense: true,
               leading: Icon(Icons.key_outlined, size: 16, color: vt.riskLow),
               title: Text(id,
-                  style: const TextStyle(
-                      fontFamily: 'monospace', fontSize: 12)),
+                  style:
+                      const TextStyle(fontFamily: 'monospace', fontSize: 12)),
               trailing: IconButton(
-                icon: Icon(Icons.delete_outline, size: 16, color: vt.riskCritical),
+                icon: Icon(Icons.delete_outline,
+                    size: 16, color: vt.riskCritical),
                 tooltip: 'Apagar chave (conteúdo nunca exibido)',
                 onPressed: () => _delete(id),
               ),
@@ -1270,7 +1263,8 @@ class _HealthSummaryCard extends ConsumerWidget {
               ),
               title: Text(e.name, style: const TextStyle(fontSize: 12)),
               subtitle: Text(e.detail,
-                  style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+                  style:
+                      const TextStyle(fontSize: 11, fontFamily: 'monospace')),
             ),
         ],
       ),
@@ -1291,11 +1285,13 @@ class _ThemeCard extends ConsumerWidget {
             dense: true,
             value: t,
             groupValue: current,
-            title: Text(switch (t) {
-              VtThemeChoice.dark => 'Escuro (padrão)',
-              VtThemeChoice.light => 'Claro',
-              VtThemeChoice.highContrast => 'Alto contraste',
-            }, style: const TextStyle(fontSize: 13)),
+            title: Text(
+                switch (t) {
+                  VtThemeChoice.dark => 'Escuro (padrão)',
+                  VtThemeChoice.light => 'Claro',
+                  VtThemeChoice.highContrast => 'Alto contraste',
+                },
+                style: const TextStyle(fontSize: 13)),
             onChanged: (v) async {
               if (v == null) return;
               ref.read(themeModeProvider.notifier).state = v;

@@ -66,8 +66,10 @@ void main() {
         expect(ids.add(t.id), isTrue, reason: 'id duplicado ${t.id}');
         expect(t.title, isNotEmpty);
         expect(t.inputSchema['type'], 'object');
-        expect(t.category, anyOf(ToolCategory.bug, ToolCategory.test,
-            ToolCategory.lint, ToolCategory.debug));
+        expect(
+            t.category,
+            anyOf(ToolCategory.bug, ToolCategory.test, ToolCategory.lint,
+                ToolCategory.debug));
       }
       expect(
           ids,
@@ -104,7 +106,7 @@ void main() {
   group('degradação honesta sem binários', () {
     late String ws;
     setUp(() async {
-      ws = await Directory.systemTemp.createTemp('vt_quality_neg');
+      ws = (await Directory.systemTemp.createTemp('vt_quality_neg')).path;
     });
     tearDown(() async => Directory(ws).delete(recursive: true));
 
@@ -144,18 +146,18 @@ void main() {
         final r = await tool.execute(
             _ctx(ws), const MapToolInput({'sessionId': 'nope'}));
         expect(r, isA<ToolFailureResult>(), reason: tool.id);
-        expect((r as ToolFailureResult).failure.code,
-            VtErrorCode.validationFailed,
+        expect(
+            (r as ToolFailureResult).failure.code, VtErrorCode.validationFailed,
             reason: tool.id);
       }
     });
 
     test('bug.verify_fix sem evidência → validation_failed', () async {
-      final r = await BugVerifyFixTool()
-          .execute(_ctx(ws), const MapToolInput({}));
+      final r =
+          await BugVerifyFixTool().execute(_ctx(ws), const MapToolInput({}));
       expect(r, isA<ToolFailureResult>());
-      expect((r as ToolFailureResult).failure.code,
-          VtErrorCode.validationFailed);
+      expect(
+          (r as ToolFailureResult).failure.code, VtErrorCode.validationFailed);
     });
 
     test('debug.attach_observatory sem uri e sem flutter → falha real',
@@ -163,16 +165,18 @@ void main() {
       final tool = DebugAttachObservatoryTool();
       final r = await tool.execute(_ctx(ws), const MapToolInput({}));
       expect(r, isA<ToolFailureResult>());
-      expect((r as ToolFailureResult).failure.code,
-          VtErrorCode.validationFailed);
+      expect(
+          (r as ToolFailureResult).failure.code, VtErrorCode.validationFailed);
     });
 
     test('attach_observatory com endpoint morto → network/timeout real',
         () async {
       final tool = DebugAttachObservatoryTool();
-      final r = await tool.execute(_ctx(ws), const MapToolInput({
-        'uri': 'ws://127.0.0.1:1/x/ws',
-      }));
+      final r = await tool.execute(
+          _ctx(ws),
+          const MapToolInput({
+            'uri': 'ws://127.0.0.1:1/x/ws',
+          }));
       expect(r, isA<ToolFailureResult>());
       final code = (r as ToolFailureResult).failure.code;
       expect(
@@ -185,17 +189,19 @@ void main() {
   group('execução REAL quando o host tem os binários', () {
     late String ws;
     setUp(() async {
-      ws = await Directory.systemTemp.createTemp('vt_quality_real');
+      ws = (await Directory.systemTemp.createTemp('vt_quality_real')).path;
     });
     tearDown(() async => Directory(ws).delete(recursive: true));
 
     test('bug.reproduce roda passos sh reais e grava log-artefato', () async {
       if (await findBinaryInPath('sh') == null) return;
       final tool = BugReproduceTool();
-      final r = await tool.execute(_ctx(ws), const MapToolInput({
-        'steps': ['echo passo-um-ok', 'exit 3'],
-        'expect': 'passo-um-ok',
-      }));
+      final r = await tool.execute(
+          _ctx(ws),
+          const MapToolInput({
+            'steps': ['echo passo-um-ok', 'exit 3'],
+            'expect': 'passo-um-ok',
+          }));
       if (r is ToolFailureResult<TextOutput>) {
         fail('execute falhou: ${r.failure.toJson()}');
       }
@@ -240,19 +246,21 @@ void main() {
           .stdout
           .toString()
           .trim();
-      final firstGood = (await Process.run(
-              'git', ['rev-parse', 'HEAD~4'], workingDirectory: ws))
+      final firstGood = (await Process.run('git', ['rev-parse', 'HEAD~4'],
+              workingDirectory: ws))
           .stdout
           .toString()
           .trim();
 
       final tool = BugBisectTool();
-      final r = await tool.execute(_ctx(ws), MapToolInput({
-        'bad': head,
-        'good': firstGood,
-        // teste real: falha se .bug existir
-        'testCommand': 'test ! -f .bug',
-      }));
+      final r = await tool.execute(
+          _ctx(ws),
+          MapToolInput({
+            'bad': head,
+            'good': firstGood,
+            // teste real: falha se .bug existir
+            'testCommand': 'test ! -f .bug',
+          }));
       expect(r, isA<ToolSuccess<TextOutput>>(),
           reason: r is ToolFailureResult
               ? (r as ToolFailureResult).failure.message
@@ -262,8 +270,8 @@ void main() {
       expect(sha.length, 40);
       expect(r.citations.single.sourceType, 'commit');
       // HEAD voltou ao normal (bisect reset rodou)
-      final status = await Process.run(
-          'git', ['status', '--porcelain'], workingDirectory: ws);
+      final status = await Process.run('git', ['status', '--porcelain'],
+          workingDirectory: ws);
       expect(status.stdout.toString().trim(), isEmpty);
     });
 
@@ -283,4 +291,3 @@ void main() {
     });
   });
 }
-
