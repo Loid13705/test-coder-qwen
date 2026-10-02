@@ -98,16 +98,39 @@ class WorkspaceSandbox implements SandboxGateway {
 
   void _checkSymlinkPolicy(String p) {
     if (followSymlinks) return;
-    // Se o alvo final for symlink e não estiver dentro das roots, bloqueia.
-    final linkType = FileSystemEntity.typeSync(p, followLinks: false);
-    if (linkType == FileSystemEntityType.link) {
-      throw VtFailure(
-        code: VtErrorCode.permissionDenied,
-        message:
-            'Symlink policy: "$p" é um symlink e a política atual não segue links. '
-            'Ajuste filesystem.followSymlinks em Settings → FileSystem.',
-      );
+    // Cobre o alvo final E cada diretório intermediário: um symlink em nível
+    // intermediário redireciona toda a operação para fora das roots sem que o
+    // componente final seja link.
+    for (final candidate in _segmentsWithAncestors(p)) {
+      final linkType =
+          FileSystemEntity.typeSync(candidate, followLinks: false);
+      if (linkType == FileSystemEntityType.link) {
+        throw VtFailure(
+          code: VtErrorCode.permissionDenied,
+          message:
+              'Symlink policy: "$candidate" é um symlink e a política atual não segue links. '
+              'Ajuste filesystem.followSymlinks em Settings → FileSystem.',
+        );
+      }
     }
+  }
+
+  /// `p` e todos os prefixos de diretório de `p` (ex.: `/a/b/c.txt` →
+  /// `/a`, `/a/b`, `/a/b/c.txt`). Raiz absoluta incluída naturalmente.
+  static List<String> _segmentsWithAncestors(String p) {
+    final normalized = normalizeSlashes(p);
+    final absolute = normalized.startsWith('/');
+    final parts = normalized.split('/');
+    final out = <String>[];
+    var acc = '';
+    for (final seg in parts) {
+      if (seg.isEmpty || seg == '.') continue;
+      acc = acc.isEmpty ? seg : '$acc/$seg';
+      // O último componente é verificado mesmo sendo arquivo (era o
+      // comportamento original); os demais cobrem diretórios intermediários.
+      out.add(absolute ? '/$acc' : acc);
+    }
+    return out.isEmpty ? [p] : out;
   }
 
   @override

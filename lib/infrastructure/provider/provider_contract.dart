@@ -213,10 +213,17 @@ class DeltaChunk extends StreamChunk {
 
 class ToolCallStartChunk extends StreamChunk {
   const ToolCallStartChunk(
-      {required this.callId, required this.toolId, required this.argsJson});
+      {required this.callId,
+      required this.toolId,
+      required this.argsJson,
+      this.providerToolUseId});
   final String callId;
   final String toolId;
   final String argsJson;
+
+  /// Id nativo do provider para o tool_use (Anthropic exige `tool_use_id` no
+  /// tool_result e ignora nosso callId interno).
+  final String? providerToolUseId;
 }
 
 class UsageChunk extends StreamChunk {
@@ -257,8 +264,19 @@ class StreamHandle {
 }
 
 class ChatRequestMessage {
-  const ChatRequestMessage({required this.role, required this.content});
+  const ChatRequestMessage({
+    required this.role,
+    required this.content,
+    this.toolCallId,
+    this.toolName,
+  });
   final String role; // system|user|assistant|tool
+
+  /// Para `role == 'tool'`: id do tool call que este resultado responde.
+  final String? toolCallId;
+
+  /// Nome da tool (wire Anthropic usa `name` no tool_result).
+  final String? toolName;
   final String content;
 }
 
@@ -339,4 +357,32 @@ class ToolCompletionOutcome {
   const ToolCompletionOutcome({required this.text, required this.modelId});
   final String text;
   final String modelId;
+}
+
+/// Capacidades reais de embedding (dimensões confirmadas por teste ao vivo,
+/// nunca presumidas). `null` = ainda não verificado para este endpoint.
+class EmbeddingCapabilities {
+  const EmbeddingCapabilities({this.dimensions, this.maxBatch = 64});
+  final int? dimensions;
+  final int maxBatch;
+}
+
+/// Contrato opcional de providers que expõem `/embeddings`.
+/// Providers sem suporte simplesmente NÃO implementam esta interface —
+/// o chamador degrada graciosamente para busca léxica (nunca finge vetor).
+abstract class EmbeddingProvider {
+  /// Id do modelo de embedding efetivo neste endpoint.
+  String get embeddingModelId;
+
+  EmbeddingCapabilities get embeddingCapabilities;
+
+  /// Verificação REAL: faz uma chamada mínima de embedding e confirma as
+  /// dimensões retornadas. Falha tipada se o endpoint não suporta embeddings.
+  Future<EmbeddingCapabilities> verifyEmbeddings();
+
+  /// Gera embeddings reais para [texts] (ordem preservada na resposta).
+  Future<List<List<double>>> embed({
+    required List<String> texts,
+    String? modelId,
+  });
 }

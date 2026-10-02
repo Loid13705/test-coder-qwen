@@ -21,7 +21,13 @@ Future<({HttpServer server, List<String> requests})> _startServer(
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   final requests = <String>[];
   server.listen((req) async {
-    final body = await utf8.decoder.bind(req).join();
+    // Decodificação leniente: o corpo contém acentos UTF-8 e os chunks TCP
+    // podem partir sequências multi-byte ao meio — allowMalformed no join
+    // final é a forma correta (a armadilha de chunked só vale p/ streaming).
+    final body = await req
+        .map<List<int>>((c) => c)
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join();
     requests.add(body);
     try {
       await handler(req);
@@ -402,6 +408,130 @@ void main() {
       expect(m.capabilities.vision, isFalse);
       expect(m.capabilities.tools, isTrue); // não sobrescrito
       await provider.dispose();
+    });
+  });
+
+  group('wire protocols alternativos (gateways/proxies)', () {
+    test('anthropicMessages: parseia envelope SSE nativo via gateway',
+        () async {
+      final (server: server, requests: requests) = await _startServer((req) async {
+        req.response.headers.contentType =
+            ContentType('text', 'event-stream', charset: 'utf-8');
+        String ev(Map<String, Object?> m) => 'data: ${jsonEncode(m)}\n\n';
+        req.response.write(ev({
+          'type': 'message_start',
+          'message': {'id': 'msg_1', 'usage': {'input_tokens': 7}}
+        }));
+        req.response.write(ev({
+          'type': 'content_block_start',
+          'index': 0,
+          'content_block': {'type': 'text', 'text': ''}
+        }));
+        req.response.write(ev({
+          'type': 'content_block_delta',
+          'index': 0,
+          'delta': {'type': 'text_delta', 'text': 'Olá '}
+        }));
+        req.response.write(ev({
+          'type': 'content_block_delta',
+          'index': 0,
+          'delta': {'type': 'text_delta', 'text': 'mundo!'}
+        }));
+        req.response.write(ev({'type': 'content_block_stop', 'index': 0}));
+        req.response.write(ev({
+          'type': 'message_delta',
+          'delta': {'stop_reason': 'end_turn'},
+          'usage': {'output_tokens': 5}
+        }));
+        req.response.write(ev({'type': 'message_stop'}));
+        await req.response.close();
+      });
+      final provider = OpenAiCompatibleProvider(
+        ProviderConfig(
+          id: 'gateway',
+          displayName: 'Anthropic Gateway',
+          baseUrl: 'http://127.0.0.1:${server.port}',
+          apiKey: 'sk-gw',
+          modelIds: ['claude-sonnet-4-20250514'],
+        ),
+        wire: OpenAiCompatWire.anthropicMessages,
+      );
+      final chunks = await provider
+          .streamChat(
+            modelId: 'claude-sonnet-4-20250514',
+            messages: const [
+              ChatRequestMessage(role: 'system', content: 'sys'),
+              ChatRequestMessage(role: 'user', content: 'oi'),
+            ],
+            options: const ChatRequestOptions(),
+            toolSchemas: const [],
+          )
+          .toList();
+      final text = chunks.whereType<DeltaChunk>().map((c) => c.text).join();
+      expect(text, 'Olá mundo!');
+      final usage = chunks.whereType<UsageChunk>().toList();
+      expect(usage.last.completionTokens, 5);
+      expect(chunks.last, isA<DoneChunk>());
+      // corpo enviado no wire Anthropic: system separado + x-api-key header
+      expect(requests.single, contains('"system":"sys"'));
+      expect(requests.single, contains('"role":"user","content":"oi"'));
+      await provider.dispose();
+      await server.close(force: true);
+    });
+
+    test('textCompletions: stream legado com choices[].text', () async {
+      final (server: server, requests: requests) = await _startServer((req) async {
+        req.response.headers.contentType =
+            ContentType('text', 'event-stream', charset: 'utf-8');
+        req.response.write(
+            'data: ${jsonEncode({'choices': [{'text': 'ab', 'finish_reason': null}]})}\n\n');
+        req.response.write(
+            'data: ${jsonEncode({'choices': [{'text': 'cd', 'finish_reason': 'stop'}], 'usage': {'prompt_tokens': 2, 'completion_tokens': 2}})}\n\n');
+        req.response.write('data: [DONE]\n\n');
+        await req.response.close();
+      });
+      final provider = OpenAiCompatibleProvider(
+        ProviderConfig(
+          id: 'legacy',
+          displayName: 'Legacy',
+          baseUrl: 'http://127.0.0.1:${server.port}',
+          apiKey: 'k',
+          modelIds: ['gpt-3.5-base'],
+        ),
+        wire: OpenAiCompatWire.textCompletions,
+      );
+      final chunks = await provider
+          .streamChat(
+            modelId: 'gpt-3.5-base',
+            messages: const [
+              ChatRequestMessage(role: 'user', content: 'vai')
+            ],
+            options: const ChatRequestOptions(),
+            toolSchemas: const [],
+          )
+          .toList();
+      expect(chunks.whereType<DeltaChunk>().map((c) => c.text).join(), 'abcd');
+      final done = chunks.whereType<DoneChunk>().single;
+      expect(done.finishReason, 'stop');
+      expect(requests.single, contains('"prompt":'));
+      expect(requests.single, isNot(contains('"messages"')));
+      await provider.dispose();
+      await server.close(force: true);
+    });
+
+    test('detectWireFromHost e presets', () {
+      expect(detectWireFromHost('https://api.anthropic.com/v1'),
+          OpenAiCompatWire.anthropicMessages);
+      expect(detectWireFromHost('https://api.openai.com/v1'),
+          OpenAiCompatWire.chatCompletions);
+      expect(detectWireFromHost('http://localhost:11434/v1'),
+          OpenAiCompatWire.chatCompletions);
+      expect(detectWireFromHost('https://minha-proxy.exemplo.com/v1'), isNull);
+      expect(kProviderPresets.map((p) => p.id),
+          containsAll(['openai', 'anthropic', 'deepseek', 'ollama']));
+      final anthropicPreset =
+          kProviderPresets.firstWhere((p) => p.id == 'anthropic');
+      expect(anthropicPreset.wire, OpenAiCompatWire.anthropicMessages);
     });
   });
 }

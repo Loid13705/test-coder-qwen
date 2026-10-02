@@ -12,7 +12,8 @@ import 'dart:io';
 
 import '../../domain/errors/redaction.dart';
 import '../../domain/errors/vt_failure.dart';
-import 'openai_compatible_provider.dart' show ProviderConfig;
+import 'openai_compatible_provider.dart'
+    show ProviderConfig, utf8ChunksIncremental, NullSocketPlaceholder;
 import 'provider_contract.dart';
 
 class AnthropicProvider implements LlmProvider {
@@ -37,8 +38,74 @@ class AnthropicProvider implements LlmProvider {
       .where((m) => config.modelIds.isEmpty || config.modelIds.contains(m.id))
       .toList();
 
-  HttpClient get _http =>
-      _client ??= HttpClient()..connectionTimeout = const Duration(seconds: 15);
+  // HttpClient não expõe encoding cru; o corpo é lido como
+  // Stream<List<int>> (bytes) e decodado por utf8ChunksIncremental.
+  // Proxy/SSL verificação REAL conforme config (mesma política do provider
+  // OpenAI-compatível: proxy explícito > direct > env; sslVerification=false
+  // só aceita certificado inválido em hosts privados).
+  HttpClient get _http => _client ??= _configureClient();
+
+  HttpClient _configureClient() {
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final proxy = config.proxy;
+    if (proxy.direct) {
+      c.findProxy = (_) => 'DIRECT';
+    } else if (proxy.url != null && proxy.url!.isNotEmpty) {
+      final u = Uri.tryParse(proxy.url!);
+      if (u != null && (u.scheme == 'http' || u.scheme.isEmpty)) {
+        final port = u.hasPort ? u.port : 8080;
+        c.findProxy = (_) => 'PROXY ${u.host}:$port';
+      }
+    } else {
+      c.findProxy = HttpClient.findProxyFromEnvironment;
+    }
+    if (!config.sslVerification) {
+      c.badCertificateCallback = (cert, host, port) => _isPrivateHost(host);
+    }
+    return c;
+  }
+
+  static bool _isPrivateHost(String host) {
+    final ip = InternetAddress.tryParse(host);
+    if (ip != null) {
+      final a = ip.address;
+      if (a == '127.0.0.1' || a.startsWith('127.')) return true;
+      if (a.startsWith('10.') || a.startsWith('192.168.')) return true;
+      if (RegExp(r'^172\.(1[6-9]|2\d|3[01])\.').hasMatch(a)) return true;
+      if (a == '::1') return true;
+      return false;
+    }
+    final h = host.toLowerCase();
+    return h == 'localhost' || h.endsWith('.local') || h.endsWith('.lan');
+  }
+
+  /// POST com retry policy real (handshake apenas — nunca retenta após o
+  /// primeiro byte da resposta, para não duplicar custo/stream parcial).
+  Future<HttpClientResponse> _postWithRetry(
+      Map<String, Object?> body) async {
+    final policy = config.retry;
+    Object? lastError;
+    for (var attempt = 1;; attempt++) {
+      try {
+        final req =
+            await _http.postUrl(_uri('messages')).timeout(config.timeout);
+        for (final h in _headers.entries) {
+          req.headers.set(h.key, h.value);
+        }
+        req.write(jsonEncode(body));
+        return req.close().timeout(config.timeout);
+      } on SocketException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (!policy.enabled || attempt >= policy.maxAttempts) {
+        if (lastError is SocketException) throw lastError;
+        throw VtFailure.timeout(config.timeout);
+      }
+      await Future<void>.delayed(policy.delayBeforeAttempt(attempt + 1));
+    }
+  }
 
   Map<String, String> get _headers => {
         'content-type': 'application/json',
@@ -86,13 +153,48 @@ class AnthropicProvider implements LlmProvider {
     };
   }
 
+  /// Decodificação UTF-8 tolerante (mesma armadilha do OpenAI-compatible:
+  /// chunk HTTP pode terminar no meio de um multi-byte) + split de linhas
+  /// incremental — nunca `LineSplitter` cru em stream de rede.
+  Future<String> _decodeUtf8Lenient(Stream<List<int>> bytes) async {
+    final sb = StringBuffer();
+    await for (final part in utf8ChunksIncremental(bytes)) {
+      sb.write(part);
+    }
+    return sb.toString();
+  }
+
+  Stream<String> _sseLinesFrom(Stream<List<int>> bytes) async* {
+    final buf = StringBuffer();
+    await for (final part in utf8ChunksIncremental(bytes)) {
+      buf.write(part);
+      final s = buf.toString();
+      var start = 0;
+      while (true) {
+        final nl = s.indexOf('\n', start);
+        if (nl < 0) break;
+        var line = s.substring(start, nl);
+        if (line.endsWith('\r')) line = line.substring(0, line.length - 1);
+        yield line;
+        start = nl + 1;
+      }
+      if (start > 0) {
+        final rest = s.substring(start);
+        buf.clear();
+        buf.write(rest);
+      }
+    }
+    final tail = buf.toString();
+    if (tail.isNotEmpty) yield tail;
+  }
+
   Future<(int, String)> _get(String path) async {
     final req = await _http.getUrl(_uri(path)).timeout(config.timeout);
     for (final h in _headers.entries) {
       req.headers.set(h.key, h.value);
     }
     final res = await req.close().timeout(config.timeout);
-    final text = await res.transform(utf8.decoder).join();
+    final text = await _decodeUtf8Lenient(res);
     return (res.statusCode, text);
   }
 
@@ -160,7 +262,12 @@ class AnthropicProvider implements LlmProvider {
           out.add({
             'role': 'user',
             'content': [
-              {'type': 'tool_result', 'content': m.content}
+              {
+                'type': 'tool_result',
+                if (m.toolCallId != null) 'tool_use_id': m.toolCallId,
+                if (m.toolName != null) 'name': m.toolName,
+                'content': m.content,
+              }
             ]
           });
         default:
@@ -195,7 +302,7 @@ class AnthropicProvider implements LlmProvider {
         ],
       }));
       final res = await req.close().timeout(config.timeout);
-      final body = await res.transform(utf8.decoder).join();
+      final body = await _decodeUtf8Lenient(res);
       if (res.statusCode != 200) throw _failureForStatus(res.statusCode, body);
       final decoded = (jsonDecode(body) as Map).cast<String, Object?>();
       final blocks = decoded['content'] as List? ?? const [];
@@ -221,35 +328,65 @@ class AnthropicProvider implements LlmProvider {
     required List<Map<String, Object?>> toolSchemas,
     void Function(StreamHandle handle)? onHandle,
   }) {
-    late final StreamController<StreamChunk> out;
+    // Controller sem callback eager + pump só na escuta: evita a corrida entre
+    // `onHandle` síncrono e a primeira linha SSE (mesma regra do provider
+    // OpenAI-compatible — stream cancelada antes de escutar não deve iniciar
+    // requisição nem tocar em controller já fechado).
+    final out = StreamController<StreamChunk>();
     var cancelled = false;
+    var closed = false;
+    var pumping = false;
     HttpClientResponse? liveRes;
 
-    Future<void> doCancel() async {
-      cancelled = true;
-      final sock = await liveRes?.detachSocket();
-      sock?.destroy();
-      out.add(const DoneChunk('cancelled'));
+    void safeAdd(StreamChunk c) {
+      if (cancelled || closed || out.isClosed) return;
+      out.add(c);
+    }
+
+    Future<void> closeOnce() async {
+      if (closed) return;
+      closed = true;
       await out.close();
     }
 
-    out = StreamController<StreamChunk>();
-    out.onListen = () async {
+    Future<void> doCancel() async {
+      if (cancelled) return;
+      cancelled = true;
       try {
-        await _pump(modelId, messages, options, toolSchemas, (c) {
-          if (!cancelled) out.add(c);
-        }, (r) => liveRes = r);
-      } on VtFailure catch (f) {
-        if (!cancelled) out.add(ErrorChunk(f));
-      } catch (e) {
-        if (!cancelled) {
-          out.add(ErrorChunk(
-              VtFailure(code: VtErrorCode.internalError, message: '$e')));
-        }
-      } finally {
-        if (!out.isClosed) await out.close();
+        final sock = await liveRes?.detachSocket().timeout(
+            const Duration(milliseconds: 200),
+            onTimeout: () => NullSocketPlaceholder());
+        sock?.destroy();
+      } catch (_) {
+        // body já em uso — encerrar a subscription também aborta a leitura
       }
-    };
+      // FIX (merge #3): DoneChunk 'cancelled' só se o stream ainda está vivo.
+      // Antes, quando doCancel corria depois do finally do pump (controller
+      // já fechado), o add estourava "Bad state: Cannot add event after
+      // closing" nos testes de cancelamento. safeAdd já é idempotente por
+      // flags, mas o evento era Perdido-ou-crash conforme a corrida; agora é
+      // garantidamente emitido-ou-ignorado, nunca lançado.
+      safeAdd(const DoneChunk('cancelled'));
+      await closeOnce();
+    }
+
+    Future<void> startPump() async {
+      if (pumping || cancelled || closed) return;
+      pumping = true;
+      try {
+        await _pump(modelId, messages, options, toolSchemas, safeAdd,
+            (r) => liveRes = r);
+      } on VtFailure catch (f) {
+        safeAdd(ErrorChunk(f));
+      } catch (e) {
+        safeAdd(ErrorChunk(
+            VtFailure(code: VtErrorCode.internalError, message: '$e')));
+      } finally {
+        await closeOnce();
+      }
+    }
+
+    out.onListen = () => unawaited(startPump());
     out.onCancel = doCancel;
     if (onHandle != null) {
       onHandle(StreamHandle(doCancel));
@@ -304,12 +441,8 @@ class AnthropicProvider implements LlmProvider {
 
     HttpClientResponse res;
     try {
-      final req = await _http.postUrl(_uri('messages')).timeout(config.timeout);
-      for (final h in _headers.entries) {
-        req.headers.set(h.key, h.value);
-      }
-      req.write(jsonEncode(body));
-      res = await req.close().timeout(config.timeout);
+      // Retry policy real também no handshake de streaming (antes do 1º byte).
+      res = await _postWithRetry(body);
     } on SocketException catch (e) {
       throw VtFailure.networkUnavailable(' ${e.osError?.message ?? ''}');
     } on TimeoutException {
@@ -317,7 +450,7 @@ class AnthropicProvider implements LlmProvider {
     }
     onResponse(res);
     if (res.statusCode != 200) {
-      final err = await res.transform(utf8.decoder).join();
+      final err = await _decodeUtf8Lenient(res);
       throw _failureForStatus(res.statusCode, err);
     }
 
@@ -328,8 +461,7 @@ class AnthropicProvider implements LlmProvider {
     final blockJson = <int, StringBuffer>{};
 
     try {
-      await for (final line
-          in res.transform(utf8.decoder).transform(const LineSplitter())) {
+      await for (final line in _sseLinesFrom(res)) {
         if (!line.startsWith('data:')) continue;
         final payload = line.substring(5).trim();
         if (payload.isEmpty) continue;
@@ -370,6 +502,7 @@ class AnthropicProvider implements LlmProvider {
                     : 'call_${DateTime.now().microsecondsSinceEpoch}',
                 toolId: blockNames[idx] ?? '',
                 argsJson: blockJson[idx]?.toString() ?? '{}',
+                providerToolUseId: blockIds[idx],
               ));
             }
           case 'message_delta':
