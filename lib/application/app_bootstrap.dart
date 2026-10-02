@@ -156,6 +156,36 @@ class FileSettings implements SettingsGateway {
       ((_values['recentWorkspaces'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList();
+
+  int? _intAt(String key) {
+    final v = get(key);
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v.trim());
+    return null;
+  }
+
+  double? _doubleAt(String key) {
+    final v = get(key);
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v.trim());
+    return null;
+  }
+
+  /// Limites REAIS do tool loop, lidos de settings.json. Null = sem limite.
+  /// Chaves: `maxToolSteps` (passos por envio), `maxCostUsd` (custo acumulado
+  /// em USD estimado pela cost table do modelo), `stepTimeoutSeconds`
+  /// (timeout global por execução de tool quando a tool não declara um menor).
+  int? get maxToolSteps => _intAt('maxToolSteps');
+  double? get maxCostUsd => _doubleAt('maxCostUsd');
+  int? get stepTimeoutSeconds => _intAt('stepTimeoutSeconds');
+
+  /// Postura de aprovação global persistida (`approvalPosture`). Retorna o
+  /// nome normalizado ('manual' | 'autoSafe' | 'autoAll') ou null quando a
+  /// política deve ser a pura do contrato de cada tool.
+  String? get approvalPostureName {
+    final v = get('approvalPosture');
+    return v is String && v.trim().isNotEmpty ? v.trim() : null;
+  }
 }
 
 /// Abre (ou cria) o banco de dados local na pasta de dados.
