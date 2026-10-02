@@ -10,11 +10,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/errors/vt_failure.dart';
+import '../../domain/net_access.dart';
 import '../state/app_state.dart';
 import '../theme/vt_theme.dart';
 import '../widgets/conversations_panel.dart';
 import 'chat_screen.dart';
 import 'diagnostics_screen.dart';
+import 'editor_screen.dart';
 import 'memory_screen.dart';
 import 'settings_screen.dart';
 import 'tools_screen.dart';
@@ -44,8 +46,7 @@ class _VtShellState extends ConsumerState<VtShell> {
     if (boot is BootFailed) {
       return _BootFailedView(
         failure: boot.failure,
-        onRetry: () =>
-            ref.read(bootProvider.notifier).retry(rootContext),
+        onRetry: () => ref.read(bootProvider.notifier).retry(rootContext),
       );
     }
 
@@ -58,6 +59,9 @@ class _VtShellState extends ConsumerState<VtShell> {
 
     final content = switch (section) {
       UiSection.chat => const ChatScreen(),
+      // O editor existia completo mas nunca era alcançável pela UI — o
+      // switch exaustivo não cobria UiSection.editor. Conectado agora.
+      UiSection.editor => const EditorScreen(),
       UiSection.workspaces => const WorkspacesScreen(),
       UiSection.tools => const ToolsScreen(),
       UiSection.memory => const MemoryScreen(),
@@ -66,39 +70,119 @@ class _VtShellState extends ConsumerState<VtShell> {
     };
 
     final panel = ConversationsPanel(
-      width: (_panelWidth < 220 ? 220.0 : _panelWidth > 420 ? 420.0 : _panelWidth),
+      width: (_panelWidth < 220
+          ? 220.0
+          : _panelWidth > 420
+              ? 420.0
+              : _panelWidth),
     );
 
     return Scaffold(
       endDrawer: wide ? null : _ConversationsDrawer(child: panel),
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: Column(
         children: [
-          _SideRail(
-            section: section,
-            onSelect: (s) =>
-                ref.read(sectionProvider.notifier).state = s,
-            workspaceName: workspace == null
-                ? 'sem workspace'
-                : workspace
-                    .replaceAll(RegExp(r'[\\/]+$'), '')
-                    .split(RegExp(r'[\\/]'))
-                    .last,
-          ),
-          VerticalDivider(width: 1, color: vt.sidebar),
-          Expanded(child: content),
-          // Painel lateral DIREITO persistente (spec §CHAT): vive no shell —
-          // trocar de seção não destrói a lista nem o scroll do painel.
-          if (wide) ...[
-            _PanelResizer(
-              onDrag: (dx) => setState(() {
-                final w = _panelWidth + dx;
-                _panelWidth = w.clamp(220.0, 420.0);
-              }),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _SideRail(
+                  section: section,
+                  onSelect: (s) => ref.read(sectionProvider.notifier).state = s,
+                  workspaceName: workspace == null
+                      ? 'sem workspace'
+                      : workspace
+                          .replaceAll(RegExp(r'[\\/]+$'), '')
+                          .split(RegExp(r'[\\/]'))
+                          .last,
+                ),
+                VerticalDivider(width: 1, color: vt.sidebar),
+                Expanded(child: content),
+                // Painel lateral DIREITO persistente (spec §CHAT): vive no shell —
+                // trocar de seção não destrói a lista nem o scroll do painel.
+                if (wide) ...[
+                  _PanelResizer(
+                    onDrag: (dx) => setState(() {
+                      final w = _panelWidth + dx;
+                      _panelWidth = w.clamp(220.0, 420.0);
+                    }),
+                  ),
+                  panel,
+                ],
+              ],
             ),
-            panel,
-          ],
+          ),
+          const _GlobalStatusBar(),
         ],
+      ),
+    );
+  }
+}
+
+/// Barra de estado global do shell. Mostra APENAS informação real e verificada
+/// (run status da conversa em foco via stream do ChatService, workspace,
+/// modelo selecionado, gate de internet configurado). Nunca simula números.
+class _GlobalStatusBar extends ConsumerWidget {
+  const _GlobalStatusBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final vt = VtTheme.of(context);
+    // StreamProvider só emite quando há conversa; sem conversa → idle real.
+    final focusState = ref.watch(focusedConversationStateProvider).valueOrNull;
+    final running =
+        focusState != null && focusState.runStatus != RunStatus.idle;
+    final model = ref.watch(selectedModelProvider);
+    final workspace = ref.watch(focusedWorkspacePathProvider);
+    // Fonte da verdade do gate: estado estático real aplicado pelo boot
+    // (VtNetAccess), lido do settings.json — não um campo inexistente.
+    final netAllowed = VtNetAccess.enabled;
+    return Container(
+      height: 22,
+      color: vt.panel,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: DefaultTextStyle(
+        style: theme.textTheme.labelSmall ?? const TextStyle(fontSize: 11),
+        child: Row(
+          children: [
+            Icon(
+              running ? Icons.autorenew : Icons.circle_outlined,
+              size: 11,
+              color: running ? vt.accent : vt.riskLow,
+            ),
+            const SizedBox(width: 4),
+            Text(running ? 'agente executando…' : 'ocioso'),
+            const SizedBox(width: 10),
+            if (workspace != null) ...[
+              Icon(Icons.folder_open, size: 11, color: theme.hintColor),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(workspace,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: theme.hintColor)),
+              ),
+              const SizedBox(width: 10),
+            ],
+            const Spacer(),
+            Icon(
+              netAllowed ? Icons.language : Icons.cloud_off,
+              size: 11,
+              color: netAllowed ? vt.riskLow : vt.riskMedium,
+            ),
+            const SizedBox(width: 4),
+            Text(netAllowed ? 'internet: liberada' : 'internet: bloqueada'),
+            const SizedBox(width: 10),
+            if (model != null) ...[
+              Icon(Icons.psychology_outlined, size: 11, color: theme.hintColor),
+              const SizedBox(width: 4),
+              Flexible(
+                  child: Text(model,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: theme.hintColor))),
+            ] else
+              Text('sem modelo', style: TextStyle(color: vt.riskMedium)),
+          ],
+        ),
       ),
     );
   }
@@ -164,6 +248,7 @@ class _SideRail extends StatelessWidget {
 
   static const _items = <(UiSection, IconData, String)>[
     (UiSection.chat, Icons.forum_outlined, 'Chat'),
+    (UiSection.editor, Icons.code, 'Editor'),
     (UiSection.workspaces, Icons.folder_outlined, 'Workspaces'),
     (UiSection.tools, Icons.build_outlined, 'Tools'),
     (UiSection.memory, Icons.psychology_outlined, 'Memória'),
@@ -294,8 +379,7 @@ class _BootSplash extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-                width: 26, height: 26, child: CircularProgressIndicator()),
+            SizedBox(width: 26, height: 26, child: CircularProgressIndicator()),
             SizedBox(height: 14),
             Text('Abrindo núcleo local (SQLite FFI, sandbox, tools)…',
                 style: TextStyle(fontSize: 13)),
